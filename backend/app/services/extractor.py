@@ -54,21 +54,28 @@ def _call_gemini(sop_text: str, api_key: str) -> AutoBPMNGraph:
 
     client = genai.Client(api_key=api_key)
 
-    # Discover live models
+    # Validasi awal singkat apakah API key Gemini valid
+    if not api_key.startswith("AIzaSy"):
+        raise ValueError("Format GEMINI_API_KEY tidak valid (kunci Gemini resmi selalu berawalan 'AIzaSy').")
+
+    # Daftar model prioritas Gemini
     candidates = list(PREFERRED)
     try:
         for m in client.models.list():
             clean = (m.name or "").replace("models/", "")
             if is_text_model(clean) and clean not in candidates:
                 candidates.append(clean)
-    except Exception:
+    except Exception as e:
+        if "API_KEY_INVALID" in str(e) or "400" in str(e) or "401" in str(e):
+            raise ValueError(f"Gemini API key tidak valid: {e}")
         pass
 
     last_err = None
-    for model in candidates:
+    for model in candidates[:4]:  # Coba maksimal 4 model teratas agar tidak hang berlarut-larut
         if not is_text_model(model):
             continue
         try:
+            print(f"[AutoBPMN] Menghubungi Gemini model: {model}...")
             resp = client.models.generate_content(
                 model=model,
                 contents=f"Ekstrak SOP berikut ke skema graf AutoBPMN:\n\n{sop_text}",
@@ -101,8 +108,9 @@ def _call_openai_compatible(
     user_prompt = f"Ekstrak SOP berikut ke skema graf AutoBPMN (output JSON only):\n\n{sop_text}"
 
     last_err = None
-    for model in models:
+    for model in models[:5]:  # Batasi 5 model teratas agar responsif
         try:
+            print(f"[AutoBPMN] Menghubungi {provider_name} model: {model}...")
             payload = json.dumps({
                 "model": model,
                 "messages": [
@@ -127,7 +135,8 @@ def _call_openai_compatible(
                 headers=headers,
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            # Timeout responsif 25 detik per model
+            with urllib.request.urlopen(req, timeout=25) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
 
             content = body["choices"][0]["message"]["content"]
@@ -143,11 +152,11 @@ def _call_openai_compatible(
 
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="replace") if e.fp else str(e)
-            logger.warning(f"{provider_name} model {model} gagal ({e.code}): {err_body[:200]}")
+            print(f"[AutoBPMN] {provider_name} {model} gagal ({e.code}): {err_body[:150]}")
             last_err = Exception(f"{provider_name} {model}: HTTP {e.code}")
             continue
         except Exception as e:
-            logger.warning(f"{provider_name} model {model} gagal: {e}")
+            print(f"[AutoBPMN] {provider_name} {model} gagal: {e}")
             last_err = e
             continue
 
@@ -172,24 +181,25 @@ def _get_groq_models(api_key: str) -> List[str]:
                 "User-Agent": "AutoBPMN/1.0 (Windows NT 10.0; Win64; x64)",
             },
         )
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
         discovered = []
         for m in data.get("data", []):
             mid = m.get("id", "")
-            if any(bad in mid.lower() for bad in ["whisper", "guard", "distil-whisper", "embed"]):
+            if any(bad in mid.lower() for bad in ["whisper", "guard", "distil-whisper", "embed", "vision"]):
                 continue
             discovered.append(mid)
 
         if discovered:
+            # Prioritaskan model teks handal untuk structured JSON
             preferred = [
                 m for m in discovered
-                if any(k in m.lower() for k in ["llama", "qwen", "deepseek", "gemma"])
+                if any(k in m.lower() for k in ["llama-3.3-70b", "llama-3.1-8b", "llama3-70b", "llama3-8b", "deepseek"])
             ]
             return preferred + [m for m in discovered if m not in preferred]
     except Exception as e:
-        logger.warning(f"Gagal mendeteksi model Groq secara live: {e}")
+        print(f"[AutoBPMN] Groq live model check: {e}")
 
     return fallback_models
 
@@ -312,14 +322,19 @@ def extract_sop_to_graph(sop_text: str) -> AutoBPMNGraph:
     groq_key = os.environ.get("GROQ_API_KEY")
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
 
-    # Susun urutan provider: cached dulu, lalu sisanya
+    # Susun urutan provider:
+    # Jika GEMINI_API_KEY tidak berawalan AIzaSy, letakkan Groq/OpenRouter di depan
     all_providers = []
-    if gemini_key:
+    gemini_valid = gemini_key and gemini_key.startswith("AIzaSy")
+
+    if gemini_key and gemini_valid:
         all_providers.append(("gemini", gemini_key, _call_gemini))
     if groq_key:
         all_providers.append(("groq", groq_key, _call_groq))
     if openrouter_key:
         all_providers.append(("openrouter", openrouter_key, _call_openrouter))
+    if gemini_key and not gemini_valid:
+        all_providers.append(("gemini", gemini_key, _call_gemini))
 
     if not all_providers:
         raise ValueError(

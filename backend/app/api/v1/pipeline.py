@@ -19,7 +19,8 @@ async def process_sop_text(payload: TextInputRequest):
     """
     # 1. Extraction (LLM -> Structured JSON Graph)
     try:
-        graph: AutoBPMNGraph = extract_sop_to_graph(payload.text_content)
+        import asyncio
+        graph: AutoBPMNGraph = await asyncio.to_thread(extract_sop_to_graph, payload.text_content)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
