@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "bpmn-js": "^18.31.0",
+    "lucide-react": "^1.57.0"
+  }
+}

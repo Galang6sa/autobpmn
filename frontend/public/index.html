@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <title>AutoBPMN Interactive Viewer</title>
+  <link rel="stylesheet" href="https://unpkg.com/bpmn-js@17.0.2/dist/assets/diagram-js.css" />
+  <link rel="stylesheet" href="https://unpkg.com/bpmn-js@17.0.2/dist/assets/bpmn-font/css/bpmn.css" />
+  <style>
+    body { font-family: sans-serif; margin: 0; padding: 20px; background: #f8fafc; }
+    #canvas { width: 100%; height: 550px; background: white; border: 1px solid #cbd5e1; border-radius: 8px; }
+    .toolbar { margin-bottom: 15px; display: flex; gap: 10px; }
+    button { padding: 8px 16px; background: #0284c7; color: white; border: none; border-radius: 6px; cursor: pointer; }
+    button:hover { background: #0369a1; }
+  </style>
+</head>
+<body>
+  <h2>AutoBPMN - Model Viewer & Verifier</h2>
+  <div class="toolbar">
+    <button onclick="loadSample()">Muat Hasil Ekstraksi SOP</button>
+    <button onclick="downloadBPMN()">Unduh Berkas .BPMN (XML)</button>
+  </div>
+  <div id="canvas"></div>
+
+  <script src="https://unpkg.com/bpmn-js@17.0.2/dist/bpmn-viewer.production.min.js"></script>
+  <script>
+    const viewer = new BpmnJS({ container: '#canvas' });
+    let currentXml = "";
+
+    async function loadSample() {
+      // Panggil endpoint /api/synthesize backend Anda atau muat XML langsung
+      const response = await fetch('/api/synthesize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(/* payload JSON ProcessGraph */)
+      });
+      const data = await response.json();
+      currentXml = data.bpmn_xml;
+      await viewer.importXML(currentXml);
+      viewer.get('canvas').zoom('fit-viewport');
+    }
+
+    function downloadBPMN() {
+      const blob = new Blob([currentXml], { type: 'application/xml' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'autobpmn-draft.bpmn';
+      a.click();
+    }
+  </script>
+</body>
+</html>
