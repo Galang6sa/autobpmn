@@ -1,14 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { UploadCloud, FileText, Send, Loader2 } from 'lucide-react';
+import { UploadCloud, FileText, Send, Loader2, Sparkles } from 'lucide-react';
 
-export default function SopUploader({ onProcessText, onProcessFile, isLoading }) {
-  const [activeTab, setActiveTab] = useState('text'); // 'text' | 'file'
-  const [textContent, setTextContent] = useState('');
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef(null);
-
-  const sampleSop = `SOP Pengadaan Perlengkapan Kantor
+const SAMPLE_SOP = `SOP Pengadaan Perlengkapan Kantor
 1. Pemohon mengisi formulir permohonan pengadaan barang.
 2. Manager Divisi meninjau urgensi kebutuhan dan ketersediaan anggaran.
 3. Jika ditolak, formulir dikembalikan ke Pemohon beserta catatan revisi.
@@ -16,157 +9,154 @@ export default function SopUploader({ onProcessText, onProcessFile, isLoading })
 5. Vendor terpilih mengirimkan barang pesanan ke kantor.
 6. Pemohon menerima barang dan menandatangani berita acara penerimaan.`;
 
+export default function SopUploader({ onProcessText, onProcessFile, isLoading }) {
+  const [tab, setTab] = useState('text');
+  const [text, setText] = useState('');
+  const [file, setFile] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileRef = useRef(null);
+
   const handleTextSubmit = (e) => {
     e.preventDefault();
-    if (!textContent.trim() || isLoading) return;
-    onProcessText(textContent);
+    if (!text.trim() || isLoading) return;
+    onProcessText(text);
   };
 
   const handleFileSubmit = (e) => {
     e.preventDefault();
-    if (!selectedFile || isLoading) return;
-    onProcessFile(selectedFile);
-  };
-
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
+    if (!file || isLoading) return;
+    onProcessFile(file);
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setSelectedFile(e.dataTransfer.files[0]);
-    }
+    if (e.dataTransfer.files?.[0]) setFile(e.dataTransfer.files[0]);
   };
 
   return (
-    <div className="flex flex-col h-full bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+    <>
       {/* Tab Switcher */}
-      <div className="flex border-b border-slate-200 bg-slate-50 p-1">
+      <div className="tabs">
         <button
           type="button"
-          onClick={() => setActiveTab('text')}
-          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition ${
-            activeTab === 'text'
-              ? 'bg-white text-blue-600 shadow-xs'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
+          onClick={() => setTab('text')}
+          className={`tab-btn ${tab === 'text' ? 'tab-btn--active' : ''}`}
         >
-          Input Teks Langsung
+          Teks Narasi
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('file')}
-          className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition ${
-            activeTab === 'file'
-              ? 'bg-white text-blue-600 shadow-xs'
-              : 'text-slate-500 hover:text-slate-800'
-          }`}
+          onClick={() => setTab('file')}
+          className={`tab-btn ${tab === 'file' ? 'tab-btn--active' : ''}`}
         >
-          Unggah File (PDF/TXT)
+          Unggah Berkas
         </button>
       </div>
 
-      <div className="p-4 flex-1 flex flex-col justify-between">
-        {activeTab === 'text' ? (
-          <form onSubmit={handleTextSubmit} className="flex-1 flex flex-col gap-3">
-            <div className="flex justify-between items-center">
-              <label className="text-xs font-semibold text-slate-700">Teks Narasi / Butir SOP</label>
-              <button
-                type="button"
-                onClick={() => setTextContent(sampleSop)}
-                className="text-[11px] text-blue-600 hover:underline"
-              >
-                Gunakan Contoh SOP
-              </button>
-            </div>
-            <textarea
-              value={textContent}
-              onChange={(e) => setTextContent(e.target.value)}
-              placeholder="Tempelkan butir prosedur atau narasi SOP di sini..."
-              rows={14}
-              className="w-full flex-1 p-3 text-xs font-mono text-slate-800 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-            />
+      {/* Text Tab */}
+      {tab === 'text' && (
+        <form onSubmit={handleTextSubmit} className="input-group">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <label className="input-label">Narasi SOP</label>
             <button
-              type="submit"
-              disabled={isLoading || !textContent.trim()}
-              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm transition disabled:opacity-50"
+              type="button"
+              className="sample-btn"
+              onClick={() => setText(SAMPLE_SOP)}
             >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Mengekstrak Logika Graf...
-                </>
-              ) : (
-                <>
-                  <Send className="w-4 h-4" />
-                  Sintesis ke BPMN 2.0
-                </>
-              )}
+              <Sparkles style={{ width: 12, height: 12 }} />
+              Contoh
             </button>
-          </form>
-        ) : (
-          <form onSubmit={handleFileSubmit} className="flex-1 flex flex-col gap-4">
+          </div>
+          <textarea
+            className="text-input"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Tempel atau ketik narasi prosedur operasional di sini..."
+          />
+          <button
+            type="submit"
+            disabled={!text.trim() || isLoading}
+            className="btn btn--primary"
+          >
+            {isLoading ? (
+              <>
+                <span className="btn__spinner" style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />
+                Mengekstrak...
+              </>
+            ) : (
+              <>
+                <Send style={{ width: 14, height: 14 }} />
+                Ekstrak ke BPMN
+              </>
+            )}
+          </button>
+        </form>
+      )}
+
+      {/* File Tab */}
+      {tab === 'file' && (
+        <form onSubmit={handleFileSubmit} className="input-group">
+          <label className="input-label">Berkas Dokumen SOP</label>
+
+          {!file ? (
             <div
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
+              className={`dropzone ${isDragging ? 'dropzone--active' : ''}`}
+              onClick={() => fileRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className={`flex-1 flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-xl cursor-pointer transition ${
-                isDragging
-                  ? 'border-blue-500 bg-blue-50/50'
-                  : 'border-slate-300 bg-slate-50 hover:bg-slate-100/60'
-              }`}
             >
+              <UploadCloud className="dropzone__icon" style={{ margin: '0 auto 10px', display: 'block' }} />
+              <div className="dropzone__text">
+                Klik atau seret berkas ke sini
+              </div>
+              <div className="dropzone__hint">
+                Mendukung format .pdf dan .txt
+              </div>
               <input
-                ref={fileInputRef}
+                ref={fileRef}
                 type="file"
                 accept=".pdf,.txt"
-                className="hidden"
-                onChange={(e) => e.target.files?.[0] && setSelectedFile(e.target.files[0])}
+                className="sr-only"
+                onChange={(e) => e.target.files?.[0] && setFile(e.target.files[0])}
               />
-              <UploadCloud className="w-10 h-10 text-slate-400 mb-2" />
-              <p className="text-xs font-semibold text-slate-700">
-                Klik atau tarik dokumen ke area ini
-              </p>
-              <p className="text-[11px] text-slate-400 mt-1">Mendukung format .PDF dan .TXT</p>
-
-              {selectedFile && (
-                <div className="mt-4 flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-md shadow-xs">
-                  <FileText className="w-4 h-4 text-blue-600" />
-                  <span className="text-xs font-medium text-slate-700 max-w-[200px] truncate">
-                    {selectedFile.name}
-                  </span>
-                </div>
-              )}
             </div>
+          ) : (
+            <div className="dropzone__file">
+              <FileText style={{ width: 16, height: 16, flexShrink: 0 }} />
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {file.name}
+              </span>
+              <button
+                type="button"
+                onClick={() => setFile(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9f1239', fontSize: 14, fontWeight: 600, padding: 0 }}
+              >
+                ×
+              </button>
+            </div>
+          )}
 
-            <button
-              type="submit"
-              disabled={isLoading || !selectedFile}
-              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm transition disabled:opacity-50"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Mengekstrak Dokumen...
-                </>
-              ) : (
-                <>
-                  <Send className="w-4 h-4" />
-                  Proses File Dokumen
-                </>
-              )}
-            </button>
-          </form>
-        )}
-      </div>
-    </div>
+          <button
+            type="submit"
+            disabled={!file || isLoading}
+            className="btn btn--primary"
+          >
+            {isLoading ? (
+              <>
+                <span className="btn__spinner" style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />
+                Memproses...
+              </>
+            ) : (
+              <>
+                <Send style={{ width: 14, height: 14 }} />
+                Proses Berkas
+              </>
+            )}
+          </button>
+        </form>
+      )}
+    </>
   );
 }

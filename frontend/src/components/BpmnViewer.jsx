@@ -1,193 +1,133 @@
 import React, { useEffect, useRef, useState } from 'react';
-import BpmnJS from 'bpmn-js/dist/bpmn-navigated-viewer.production.min.js';
+import BpmnJS from 'bpmn-js/lib/NavigatedViewer';
 import 'bpmn-js/dist/assets/diagram-js.css';
+import 'bpmn-js/dist/assets/bpmn-js.css';
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css';
-import { ZoomIn, ZoomOut, Maximize2, Download, Image as ImageIcon, AlertCircle } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize2, Download } from 'lucide-react';
 
-export default function BpmnViewer({ xml, processName = 'process-diagram' }) {
+export default function BpmnViewer({ xml, processName = '' }) {
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
-  const [renderError, setRenderError] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-  // Inisialisasi bpmn-js viewer instance
   useEffect(() => {
     if (!containerRef.current) return;
-
-    const viewer = new BpmnJS({
-      container: containerRef.current,
-      keyboard: {
-        bindTo: window,
-      },
-    });
-
+    const viewer = new BpmnJS({ container: containerRef.current });
     viewerRef.current = viewer;
-
-    return () => {
-      viewer.destroy();
-    };
+    return () => viewer.destroy();
   }, []);
 
-  // Import dan render XML diagram setiap kali props `xml` berubah
   useEffect(() => {
-    const renderDiagram = async () => {
-      if (!viewerRef.current || !xml) return;
-
-      setIsLoading(true);
-      setRenderError(null);
-
+    if (!viewerRef.current || !xml) return;
+    setLoading(true);
+    setError(null);
+    (async () => {
       try {
         await viewerRef.current.importXML(xml);
-        // Otomatis posisikan diagram di tengah kanvas
-        const canvas = viewerRef.current.get('canvas');
-        canvas.zoom('fit-viewport');
+        viewerRef.current.get('canvas').zoom('fit-viewport');
       } catch (err) {
-        console.error('BPMN Render Error:', err);
-        setRenderError(err.message || 'Gagal merender skema BPMN XML.');
+        setError(err.message || 'Gagal merender diagram.');
       } finally {
-        setIsLoading(false);
+        setLoading(false);
       }
-    };
-
-    renderDiagram();
+    })();
   }, [xml]);
 
-  // Handler Zooming & Navigasi Kanvas
-  const handleZoom = (step) => {
+  const zoom = (step) => {
     if (!viewerRef.current) return;
-    const canvas = viewerRef.current.get('canvas');
-    canvas.zoom(canvas.zoom() + step);
+    const c = viewerRef.current.get('canvas');
+    c.zoom(c.zoom() + step);
   };
 
-  const handleResetZoom = () => {
+  const fitView = () => viewerRef.current?.get('canvas').zoom('fit-viewport');
+
+  const downloadXml = async () => {
     if (!viewerRef.current) return;
-    const canvas = viewerRef.current.get('canvas');
-    canvas.zoom('fit-viewport');
+    const { xml: out } = await viewerRef.current.saveXML({ format: true });
+    downloadBlob(out, 'application/xml', `${slugify(processName)}.bpmn`);
   };
 
-  // Handler Unduh File XML (.bpmn)
-  const handleDownloadXml = () => {
-    if (!xml) return;
-    const blob = new Blob([xml], { type: 'application/xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${processName.toLowerCase().replace(/\s+/g, '_')}.bpmn`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  // Handler Unduh Grafis Vektor (.svg)
-  const handleDownloadSvg = async () => {
+  const downloadSvg = async () => {
     if (!viewerRef.current) return;
-    try {
-      const { svg } = await viewerRef.current.saveSVG();
-      const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${processName.toLowerCase().replace(/\s+/g, '_')}.svg`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Gagal mengekspor diagram ke SVG:', err);
-    }
+    const { svg } = await viewerRef.current.saveSVG();
+    downloadBlob(svg, 'image/svg+xml', `${slugify(processName)}.svg`);
   };
 
   return (
-    <div className="flex flex-col w-full h-full bg-slate-50 border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-      {/* Toolbar Atas */}
-      <div className="flex items-center justify-between px-4 py-2.5 bg-white border-b border-slate-200">
-        <div className="flex items-center space-x-2">
-          <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-          <h3 className="text-sm font-semibold text-slate-700 truncate max-w-xs md:max-w-md">
-            {processName}
-          </h3>
+    <>
+      {/* Toolbar */}
+      <div className="canvas-toolbar">
+        <div className="canvas-toolbar__left">
+          <span className="canvas-toolbar__label">Canvas</span>
+          {processName && <span className="canvas-toolbar__badge">{processName}</span>}
         </div>
 
-        {/* Tombol Aksi Kontrol & Ekspor */}
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => handleZoom(0.2)}
-            title="Perbesar"
-            className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition"
-          >
-            <ZoomIn className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => handleZoom(-0.2)}
-            title="Perkecil"
-            className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition"
-          >
-            <ZoomOut className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleResetZoom}
-            title="Reset Ukuran (Fit View)"
-            className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition"
-          >
-            <Maximize2 className="w-4 h-4" />
-          </button>
+        <div className="canvas-legend">
+          <div className="legend-item"><span className="legend-dot legend-dot--start" />Start</div>
+          <div className="legend-item"><span className="legend-dot legend-dot--task" />Task</div>
+          <div className="legend-item"><span className="legend-dot legend-dot--service" />Service</div>
+          <div className="legend-item"><span className="legend-dot legend-dot--gw" />Decision</div>
+          <div className="legend-item"><span className="legend-dot legend-dot--end" />End</div>
+        </div>
 
-          <div className="h-4 w-px bg-slate-300 mx-1" />
-
-          <button
-            onClick={handleDownloadSvg}
-            disabled={!xml || isLoading}
-            title="Unduh Gambar SVG"
-            className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition disabled:opacity-50"
-          >
-            <ImageIcon className="w-3.5 h-3.5" />
-            <span>SVG</span>
+        <div className="canvas-toolbar__right">
+          <button className="toolbar-btn" onClick={() => zoom(0.2)} title="Zoom In"><ZoomIn /></button>
+          <button className="toolbar-btn" onClick={() => zoom(-0.2)} title="Zoom Out"><ZoomOut /></button>
+          <button className="toolbar-btn" onClick={fitView} title="Fit"><Maximize2 /></button>
+          <span className="toolbar-sep" />
+          <button className="toolbar-btn" onClick={downloadXml} disabled={!xml} title="Download .bpmn">
+            <Download />.bpmn
           </button>
-
-          <button
-            onClick={handleDownloadXml}
-            disabled={!xml || isLoading}
-            title="Unduh Berkas BPMN 2.0 XML"
-            className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md shadow-sm transition disabled:opacity-50"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Unduh BPMN</span>
+          <button className="toolbar-btn" onClick={downloadSvg} disabled={!xml} title="Download .svg">
+            <Download />.svg
           </button>
         </div>
       </div>
 
-      {/* Area Kanvas Diagram */}
-      <div className="relative flex-1 w-full min-h-[500px] bg-white">
-        {/* Indikator Loading */}
-        {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10 backdrop-blur-xs">
-            <div className="flex items-center gap-2 text-sm text-slate-600 font-medium">
-              <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-              Memuat Model Diagram...
+      {/* Canvas */}
+      <div className="canvas-container">
+        <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+        {loading && (
+          <div className="canvas-overlay">
+            <div className="canvas-overlay__spinner" />
+          </div>
+        )}
+
+        {!xml && !loading && !error && (
+          <div className="empty-state">
+            <svg className="empty-state__icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+            </svg>
+            <div className="empty-state__title">Belum ada diagram</div>
+            <div className="empty-state__desc">
+              Masukkan teks SOP atau unggah berkas di panel kiri untuk menghasilkan diagram alur proses BPMN 2.0.
             </div>
           </div>
         )}
 
-        {/* Indikator Pesan Kesalahan */}
-        {renderError && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10 bg-rose-50/90">
-            <AlertCircle className="w-8 h-8 text-rose-500 mb-2" />
-            <p className="text-sm font-semibold text-rose-900">Gagal Merender Diagram</p>
-            <p className="text-xs text-rose-700 mt-1 max-w-md">{renderError}</p>
+        {error && (
+          <div className="canvas-error">
+            <svg style={{ width: 14, height: 14, flexShrink: 0, marginTop: 1 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
+            </svg>
+            <span>{error}</span>
           </div>
         )}
-
-        {/* Placeholder Kosong */}
-        {!xml && !isLoading && !renderError && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
-            <p className="text-sm font-medium">Belum ada dokumen SOP yang diproses.</p>
-            <p className="text-xs mt-1">Unggah berkas atau masukkan teks SOP untuk menghasilkan diagram.</p>
-          </div>
-        )}
-
-        <div ref={containerRef} className="w-full h-full" />
       </div>
-    </div>
+    </>
   );
+}
+
+function slugify(s) {
+  return (s || 'process').replace(/\s+/g, '_').toLowerCase();
+}
+
+function downloadBlob(content, type, filename) {
+  const blob = new Blob([content], { type: `${type};charset=utf-8` });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
 }

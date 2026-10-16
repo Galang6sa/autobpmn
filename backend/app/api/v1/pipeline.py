@@ -28,19 +28,20 @@ async def process_sop_text(payload: TextInputRequest):
 
     # 2. Validation (Verifikasi Logika Graf & Integritas Alur)
     val_result = validate_process_graph(graph)
-    if not val_result["is_valid"]:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "message": "Validasi graf gagal: terdeteksi cacat logika",
-                "errors": val_result
-            }
-        )
 
     # 3. Synthesis (Intermediate Graph -> BPMN 2.0 XML)
     try:
         bpmn_xml = generate_bpmn_xml(graph)
     except Exception as e:
+        if not val_result["is_valid"]:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "message": "Validasi graf gagal dan sintesis BPMN tidak dapat dilanjutkan",
+                    "errors": val_result,
+                    "synthesis_error": str(e)
+                }
+            )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Gagal mensintesis BPMN XML: {str(e)}"
