@@ -595,7 +595,7 @@ export async function synthesizeGraphApi(graph, forceReal = null) {
 /**
  * Meminta AI menghasilkan usulan patch terstruktur (AI-assisted Editing)
  */
-export async function requestAiEditApi(prompt, currentGraph, selectedNodeId = null, forceReal = null) {
+export async function requestAiEditApi(prompt, currentGraph, selectedNodeId = null, forceReal = null, sopContext = null) {
   const useReal = forceReal !== null ? forceReal : isRealApiMode();
 
   if (!useReal) {
@@ -604,7 +604,54 @@ export async function requestAiEditApi(prompt, currentGraph, selectedNodeId = nu
     const promptLower = prompt.toLowerCase();
     let patch = null;
 
-    if (promptLower.includes('ubah') && (promptLower.includes('aktor') || promptLower.includes('pelaksana') || promptLower.includes('peran'))) {
+    if (sopContext?.trim()) {
+      const endEdge = currentGraph.edges.find((edge) =>
+        currentGraph.nodes.some((node) => node.id === edge.to_node && node.type === 'endEvent')
+      );
+      if (!endEdge) {
+        throw new Error('Tidak ditemukan alur menuju akhir proses untuk menambahkan langkah SOP.');
+      }
+
+      const names = sopContext
+        .split(/\r?\n|(?<=[.!?])\s+/)
+        .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
+        .filter((line) => !/^(?:sop(?:\s|:)|standar operasional prosedur\b)/i.test(line))
+        .filter((line) => line.length > 4)
+        .slice(0, 4);
+      if (names.length === 0) {
+        throw new Error('Tambahkan setidaknya satu langkah baru untuk memperluas diagram.');
+      }
+
+      const usedIds = new Set(currentGraph.nodes.map((node) => node.id));
+      const operations = [];
+      let previousNodeId = endEdge.from_node;
+      names.forEach((name, index) => {
+        let nodeId = `extend_step_${currentGraph.nodes.length + index + 1}`;
+        while (usedIds.has(nodeId)) nodeId = `${nodeId}_new`;
+        usedIds.add(nodeId);
+        const nextNode = {
+          id: nodeId,
+          type: 'userTask',
+          name: name.slice(0, 100),
+          actor: 'Belum ditentukan',
+        };
+        operations.push({
+          op: 'insert_step_between',
+          from_node: previousNodeId,
+          to_node: endEdge.to_node,
+          new_node: nextNode,
+        });
+        previousNodeId = nodeId;
+      });
+
+      patch = {
+        patch_id: `sim_patch_extend_${Date.now()}`,
+        description: `Menambahkan ${names.length} langkah dari sumber SOP`,
+        rationale: 'Diagram yang sudah ada dipertahankan; hanya langkah tambahan yang disisipkan.',
+        target_node_ids: [endEdge.from_node, endEdge.to_node],
+        operations,
+      };
+    } else if (promptLower.includes('ubah') && (promptLower.includes('aktor') || promptLower.includes('pelaksana') || promptLower.includes('peran'))) {
       const targetId = selectedNodeId || (currentGraph.nodes[1]?.id || 'task_1');
       const targetNode = currentGraph.nodes.find((n) => n.id === targetId);
       const newActor = promptLower.includes('manajer') ? 'Manager Divisi' : promptLower.includes('keuangan') ? 'Bagian Keuangan' : 'Bagian Kepatuhan & Legal';
@@ -684,6 +731,7 @@ export async function requestAiEditApi(prompt, currentGraph, selectedNodeId = nu
       prompt,
       current_graph: currentGraph,
       selected_node_id: selectedNodeId,
+      sop_context: sopContext || null,
     }),
   });
   return handleResponse(response);
@@ -720,5 +768,3 @@ export async function applyGraphPatchApi(graph, patch, forceReal = null) {
   });
   return handleResponse(response);
 }
-
-

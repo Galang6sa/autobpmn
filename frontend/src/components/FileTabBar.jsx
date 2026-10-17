@@ -1,8 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  FileCode2, Plus, X, Upload, Download,
-  ChevronDown, FileJson, Image, Check, Edit2,
-  FolderOpen
+  FileCode2, Plus, X, FolderOpen, FileText, FilePlus2
 } from 'lucide-react';
 
 /**
@@ -19,15 +17,20 @@ export default function FileTabBar({
   onImportFile,
   onExport,
   onRenameTab,
+  onCreateFromSopFile,
+  isCreatingFile = false,
 }) {
   const [editingTabId, setEditingTabId] = useState(null);
   const [editingName, setEditingName] = useState('');
-  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [newFileMenuOpen, setNewFileMenuOpen] = useState(false);
+  const [newFileMenuPosition, setNewFileMenuPosition] = useState({ top: 0, left: 0 });
 
   const fileInputRef = useRef(null);
+  const bpmnFileInputRef = useRef(null);
+  const sopFileInputRef = useRef(null);
+  const addFileButtonRef = useRef(null);
   const renameInputRef = useRef(null);
-  const exportDropdownRef = useRef(null);
   const tabListRef = useRef(null);
 
   // Auto focus input when renaming tab
@@ -38,18 +41,18 @@ export default function FileTabBar({
     }
   }, [editingTabId]);
 
-  // Click outside to close export menu
   useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (exportDropdownRef.current && !exportDropdownRef.current.contains(e.target)) {
-        setExportMenuOpen(false);
+    if (!newFileMenuOpen) return undefined;
+    const handleMenuKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setNewFileMenuOpen(false);
+        addFileButtonRef.current?.focus();
       }
     };
-    if (exportMenuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [exportMenuOpen]);
+    window.addEventListener('keydown', handleMenuKeyDown);
+    return () => window.removeEventListener('keydown', handleMenuKeyDown);
+  }, [newFileMenuOpen]);
 
   const handleStartRename = (e, file) => {
     e.stopPropagation();
@@ -86,6 +89,38 @@ export default function FileTabBar({
     e.target.value = ''; // Reset input
   };
 
+  const handleSopFileChange = (e) => {
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile) {
+      onCreateFromSopFile(selectedFile);
+    }
+    e.target.value = '';
+  };
+
+  const showNewFileMenu = () => {
+    const trigger = addFileButtonRef.current;
+    const tabbar = trigger?.closest('.vscode-tabbar');
+    if (trigger && tabbar) {
+      const triggerRect = trigger.getBoundingClientRect();
+      const tabbarRect = tabbar.getBoundingClientRect();
+      setNewFileMenuPosition({
+        top: Math.max(0, triggerRect.top - tabbarRect.top - 5),
+        left: triggerRect.right - tabbarRect.left + 4,
+      });
+    }
+    setNewFileMenuOpen(true);
+  };
+
+  const importSopFile = () => {
+    setNewFileMenuOpen(false);
+    sopFileInputRef.current?.click();
+  };
+
+  const createBlankFile = () => {
+    setNewFileMenuOpen(false);
+    onNewTab();
+  };
+
   // Drag & drop file handler onto the tab bar
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -106,7 +141,11 @@ export default function FileTabBar({
 
     const droppedFile = e.dataTransfer.files?.[0];
     if (droppedFile) {
-      onImportFile(droppedFile);
+      if (/\.(pdf|txt)$/i.test(droppedFile.name)) {
+        onCreateFromSopFile(droppedFile);
+      } else {
+        onImportFile(droppedFile);
+      }
     }
   };
 
@@ -116,11 +155,18 @@ export default function FileTabBar({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      onMouseLeave={() => setNewFileMenuOpen(false)}
       role="tablist"
       aria-label="Daftar berkas BPMN terbuka"
     >
       {/* Scrollable Tabs Container */}
-      <div className="vscode-tabbar__tabs" ref={tabListRef}>
+      <div
+        className="vscode-tabbar__tabs"
+        ref={tabListRef}
+        onScroll={() => {
+          if (newFileMenuOpen) showNewFileMenu();
+        }}
+      >
         {files.map((file) => {
           const isActive = file.id === activeFileId;
           const isEditing = file.id === editingTabId;
@@ -181,11 +227,16 @@ export default function FileTabBar({
 
         {/* Add New Tab Button */}
         <button
+          ref={addFileButtonRef}
           type="button"
           className="vscode-tabbar__add-btn"
-          onClick={onNewTab}
-          title="Buat diagram BPMN baru (+)"
-          aria-label="Buat diagram baru"
+          onMouseEnter={showNewFileMenu}
+          onFocus={showNewFileMenu}
+          onClick={showNewFileMenu}
+          aria-expanded={newFileMenuOpen}
+          aria-haspopup="menu"
+          title="Tambah file"
+          aria-label="Tampilkan pilihan file baru"
         >
           <Plus size={14} />
         </button>
@@ -214,6 +265,68 @@ export default function FileTabBar({
           <span>Buka Berkas</span>
         </button>
       </div>
+
+      <input
+        ref={bpmnFileInputRef}
+        type="file"
+        accept=".bpmn,.xml"
+        style={{ display: 'none' }}
+        onChange={handleFileInputChange}
+      />
+
+      <input
+        ref={sopFileInputRef}
+        type="file"
+        accept=".pdf,.txt,application/pdf,text/plain"
+        style={{ display: 'none' }}
+        onChange={handleSopFileChange}
+      />
+
+      {newFileMenuOpen && (
+        <div
+          className="new-file-menu"
+          role="menu"
+          aria-label="Pilihan file baru"
+          style={{
+            top: `${newFileMenuPosition.top}px`,
+            left: `${newFileMenuPosition.left}px`,
+          }}
+        >
+          <button
+            type="button"
+            className="new-file-menu__item"
+            role="menuitem"
+            onClick={() => {
+              setNewFileMenuOpen(false);
+              bpmnFileInputRef.current?.click();
+            }}
+            disabled={isCreatingFile}
+          >
+            <FolderOpen size={15} aria-hidden="true" />
+            <span>Impor file BPMN</span>
+          </button>
+          <button
+            type="button"
+            className="new-file-menu__item"
+            role="menuitem"
+            onClick={importSopFile}
+            disabled={isCreatingFile}
+          >
+            <FileText size={15} aria-hidden="true" />
+            <span>Impor sumber SOP dari lokal</span>
+          </button>
+          <button
+            type="button"
+            className="new-file-menu__item"
+            role="menuitem"
+            onClick={createBlankFile}
+            disabled={isCreatingFile}
+          >
+            <FilePlus2 size={15} aria-hidden="true" />
+            <span>Mulai dari file kosong</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

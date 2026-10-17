@@ -1,7 +1,11 @@
 import pytest
 from app.schemas.process_graph import AutoBPMNGraph, Node, Edge
 from app.schemas.graph_patch import GraphPatch, AiEditRequest
-from app.services.graph_patcher import validate_and_apply_patch, generate_simulated_patch, compute_diff_summary
+from app.services.graph_patcher import (
+    validate_and_apply_patch,
+    generate_ai_patch,
+    generate_simulated_patch,
+)
 
 
 @pytest.fixture
@@ -107,3 +111,47 @@ def test_simulated_ai_patch_generation(sample_graph):
     is_valid, new_graph, issues, _ = validate_and_apply_patch(sample_graph, patch)
     assert is_valid is True
     assert any(n.actor == "Bagian Keuangan" for n in new_graph.nodes)
+
+
+def test_simulated_sop_extension_preserves_existing_steps(sample_graph):
+    req = AiEditRequest(
+        prompt="Tambahkan langkah dari SOP tambahan saja",
+        current_graph=sample_graph,
+        sop_context=(
+            "SOP Pengadaan Barang\n"
+            "1. Petugas mengirim notifikasi hasil pemeriksaan.\n"
+            "2. Pemohon menerima konfirmasi."
+        ),
+    )
+    patch = generate_simulated_patch(req)
+
+    assert all(operation["op"] == "insert_step_between" for operation in patch.operations)
+    is_valid, new_graph, issues, diff = validate_and_apply_patch(sample_graph, patch)
+    assert is_valid is True
+    assert issues == []
+    assert len(diff["added_nodes"]) == 2
+    assert not diff["removed_nodes"]
+    assert {node.id for node in sample_graph.nodes}.issubset({node.id for node in new_graph.nodes})
+
+
+def test_ai_sop_extension_falls_back_when_patch_rewrites_existing_graph(sample_graph, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.graph_patcher.call_copilot_llm",
+        lambda _prompt: (
+            '{"description":"Menghapus langkah lama","operations":'
+            '[{"op":"remove_node","node_id":"task_1"}]}'
+        ),
+    )
+    req = AiEditRequest(
+        prompt="Tambahkan aturan tambahan",
+        current_graph=sample_graph,
+        sop_context="Tambahkan pemeriksaan oleh petugas sebelum proses berakhir.",
+    )
+
+    patch = generate_ai_patch(req)
+
+    assert patch.operations
+    assert all(
+        operation["op"] in {"add_node", "add_edge", "insert_step_between"}
+        for operation in patch.operations
+    )

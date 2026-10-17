@@ -6,10 +6,13 @@ import Keycap from './components/Keycap';
 import AiCopilotPanel from './components/AiCopilotPanel';
 import CommandPalette from './components/CommandPalette';
 import FileTabBar from './components/FileTabBar';
+import ChangePreviewModal from './components/ChangePreviewModal';
 import {
   isRealApiMode,
   processSopText,
   processSopFile,
+  requestAiEditApi,
+  applyGraphPatchApi,
 } from './services/api';
 import {
   createBlankProcess,
@@ -19,6 +22,12 @@ import {
   loadPersistedFiles,
   persistFiles,
   loadPersistedActiveTabId,
+  loadPersistedSopSource,
+  loadPersistedCopilotChat,
+  persistCopilotChat,
+  removePersistedCopilotChat,
+  persistSopSource,
+  removePersistedSopSource,
 } from './services/fileManager';
 import {
   PanelLeftClose, PanelLeftOpen,
@@ -40,6 +49,10 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
   const [selectedElement, setSelectedElement] = useState(null);
+  const [sourceFile, setSourceFile] = useState(null);
+  const [copilotSession, setCopilotSession] = useState({ fileId: '', messages: [], loaded: false });
+  const [changePreview, setChangePreview] = useState(null);
+  const [pendingExtension, setPendingExtension] = useState(null);
 
   // ── Multi-Tab File Management State ──
   const [files, setFiles] = useState(() => {
@@ -62,6 +75,50 @@ export default function App() {
     if (!files || files.length === 0) return null;
     return files.find((f) => f.id === activeFileId) || files[0] || null;
   }, [files, activeFileId]);
+
+  useEffect(() => {
+    let isCurrent = true;
+    setSourceFile(null);
+    if (!activeFile?.sopFileName) return () => { isCurrent = false; };
+
+    loadPersistedSopSource(activeFile.id)
+      .then((savedSource) => {
+        if (isCurrent) {
+          setSourceFile(savedSource);
+          if (!savedSource) {
+            setErrorMessage('Berkas sumber SOP tidak ditemukan di penyimpanan browser.');
+          }
+        }
+      })
+      .catch((err) => {
+        console.error('Load SOP source error:', err);
+        if (isCurrent) setErrorMessage(err.message || 'Gagal memuat berkas sumber SOP.');
+      });
+
+    return () => { isCurrent = false; };
+  }, [activeFile?.id, activeFile?.sopFileName]);
+
+  useEffect(() => {
+    let isCurrent = true;
+    if (!activeFile?.id) {
+      setCopilotSession({ fileId: '', messages: [], loaded: true });
+      return () => { isCurrent = false; };
+    }
+
+    setCopilotSession({ fileId: activeFile.id, messages: [], loaded: false });
+    loadPersistedCopilotChat(activeFile.id)
+      .then((messages) => {
+        if (isCurrent) setCopilotSession({ fileId: activeFile.id, messages, loaded: true });
+      })
+      .catch((err) => {
+        console.error('Load Copilot chat error:', err);
+        if (isCurrent) {
+          setErrorMessage(err.message || 'Gagal memuat riwayat Copilot.');
+          setCopilotSession({ fileId: activeFile.id, messages: [], loaded: true });
+        }
+      });
+    return () => { isCurrent = false; };
+  }, [activeFile?.id]);
 
   // Persist files whenever they change (can be empty array)
   useEffect(() => {
@@ -109,6 +166,16 @@ export default function App() {
 
       const closedIndex = files.findIndex((f) => f.id === fileIdToClose);
       const remainingFiles = files.filter((f) => f.id !== fileIdToClose);
+      if (fileToClose?.sopFileName) {
+        removePersistedSopSource(fileIdToClose).catch((err) => {
+          console.error('Remove SOP source error:', err);
+          setErrorMessage(err.message || 'Gagal menghapus berkas sumber SOP.');
+        });
+      }
+      removePersistedCopilotChat(fileIdToClose).catch((err) => {
+        console.error('Remove Copilot chat error:', err);
+        setErrorMessage(err.message || 'Gagal menghapus riwayat Copilot.');
+      });
       setFiles(remainingFiles);
 
       if (remainingFiles.length === 0) {
@@ -275,26 +342,60 @@ export default function App() {
     setErrorMessage(null);
   };
 
-  const handleSynthesisResult = (data, rawSop = '') => {
-    const newFile = createFileFromSynthesis(data, rawSop);
-    setFiles((prev) => {
-      // Jika tab saat ini kosong dan belum diedit, gantikan
-      if (prev.length === 1 && prev[0].name.startsWith('Untitled-') && !prev[0].isDirty) {
-        return [newFile];
-      }
-      return [...prev, newFile];
-    });
-    setActiveFileId(newFile.id);
+  const handleSynthesisResult = async (data, rawSop = '', source = null, createNewFile = false) => {
+    const synthesizedFile = createFileFromSynthesis(data, rawSop);
+    const existingFile = createNewFile ? null : activeFile;
+    const targetFile = existingFile
+      ? {
+          ...existingFile,
+          ...synthesizedFile,
+          id: existingFile.id,
+          name: existingFile.name.startsWith('Untitled-') ? synthesizedFile.name : existingFile.name,
+          sopFileName: source?.name || '',
+        }
+      : {
+          ...synthesizedFile,
+          sopFileName: source?.name || '',
+        };
+
+    if (source) {
+      await persistSopSource(targetFile.id, source);
+      setSourceFile(source);
+    } else if (existingFile?.sopFileName) {
+      await removePersistedSopSource(existingFile.id);
+      setSourceFile(null);
+    }
+
+    setFiles((prev) => existingFile
+      ? prev.map((file) => (file.id === existingFile.id ? targetFile : file))
+      : [...prev, targetFile]);
+    setActiveFileId(targetFile.id);
     setSelectedElement(null);
     setErrorMessage(null);
   };
 
-  const handleProcessText = async (text) => {
+  const handleProcessText = async (text, mode = 'replace') => {
+    if (!text.trim()) return;
     setIsLoading(true);
     setErrorMessage(null);
     try {
+      if (mode === 'extend') {
+        if (!activeFile?.intermediateGraph) {
+          throw new Error('Buat diagram BPMN terlebih dahulu sebelum menggunakan extend.');
+        }
+        const preview = await requestAiEditApi(
+          'Tambahkan hanya langkah atau aturan baru yang didukung oleh sumber SOP tambahan. Pertahankan seluruh langkah dan alur yang sudah ada; jangan menghapus atau mengganti bagian lama kecuali sangat diperlukan untuk menyisipkan tambahan.',
+          activeFile.intermediateGraph,
+          null,
+          isRealMode,
+          text
+        );
+        setPendingExtension({ fileId: activeFile.id, text });
+        setChangePreview(preview);
+        return;
+      }
       const res = await processSopText(text, 'Dokumen SOP', isRealMode);
-      handleSynthesisResult(res, text);
+      await handleSynthesisResult(res, text);
     } catch (err) {
       setErrorMessage(err.message || 'Gagal memproses teks SOP.');
     } finally {
@@ -302,18 +403,132 @@ export default function App() {
     }
   };
 
-  const handleProcessFile = async (file) => {
+  const handleProcessFile = async (file, mode = 'replace') => {
+    if (mode === 'extend') return;
     setIsLoading(true);
     setErrorMessage(null);
     try {
       const res = await processSopFile(file, isRealMode);
-      handleSynthesisResult(res, '');
+      const rawText = res.source_text || (file.type === 'text/plain' || file.name.toLowerCase().endsWith('.txt')
+        ? await file.text()
+        : '');
+      await handleSynthesisResult(res, rawText, file);
     } catch (err) {
       setErrorMessage(err.message || 'Gagal memproses berkas SOP.');
     } finally {
       setIsLoading(false);
     }
   };
+
+  const handleCreateFromSopFile = async (file) => {
+    setIsLoading(true);
+    setErrorMessage(null);
+    try {
+      const result = await processSopFile(file, isRealMode);
+      const rawText = result.source_text || (file.type === 'text/plain' || file.name.toLowerCase().endsWith('.txt')
+        ? await file.text()
+        : '');
+      await handleSynthesisResult(result, rawText, file, true);
+    } catch (err) {
+      console.error('Create BPMN from SOP file error:', err);
+      setErrorMessage(err.message || 'Gagal membuat file BPMN dari sumber SOP.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSourceTextChange = useCallback((text) => {
+    if (!activeFile) return;
+    setFiles((prev) => prev.map((file) => (
+      file.id === activeFile.id
+        ? { ...file, sopText: text, sopFileName: '' }
+        : file
+    )));
+    if (activeFile.sopFileName) {
+      removePersistedSopSource(activeFile.id).catch((err) => {
+        console.error('Remove replaced SOP source error:', err);
+        setErrorMessage(err.message || 'Gagal memperbarui sumber SOP.');
+      });
+      setSourceFile(null);
+    }
+  }, [activeFile]);
+
+  const handleSourceFileChange = useCallback(async (file) => {
+    if (!activeFile) return;
+    try {
+      await persistSopSource(activeFile.id, file);
+      setSourceFile(file);
+      setFiles((prev) => prev.map((tab) => (
+        tab.id === activeFile.id
+          ? { ...tab, sopFileName: file.name, sopText: '' }
+          : tab
+      )));
+      setErrorMessage(null);
+    } catch (err) {
+      console.error('Persist SOP source error:', err);
+      setErrorMessage(err.message || 'Gagal menyimpan berkas sumber SOP.');
+    }
+  }, [activeFile]);
+
+  const handleClearSourceFile = useCallback(() => {
+    if (!activeFile) return;
+    removePersistedSopSource(activeFile.id).catch((err) => {
+      console.error('Clear SOP source error:', err);
+      setErrorMessage(err.message || 'Gagal menghapus berkas sumber SOP.');
+    });
+    setSourceFile(null);
+    setFiles((prev) => prev.map((file) => (
+      file.id === activeFile.id
+        ? { ...file, sopFileName: '' }
+        : file
+    )));
+  }, [activeFile]);
+
+  const handleApplyExtension = async (preview) => {
+    if (!pendingExtension) return;
+    const targetFile = files.find((file) => file.id === pendingExtension.fileId);
+    if (!targetFile?.intermediateGraph) {
+      setErrorMessage('File BPMN tujuan tidak lagi tersedia untuk menerima tambahan.');
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    try {
+      const result = await applyGraphPatchApi(targetFile.intermediateGraph, preview.patch, isRealMode);
+      const updatedFile = {
+        ...targetFile,
+        intermediateGraph: result.intermediate_graph,
+        bpmnXml: result.bpmn_xml,
+        validation: result.validation,
+        sopText: [targetFile.sopText, pendingExtension.text].filter(Boolean).join('\n\n'),
+        isDirty: true,
+      };
+      setFiles((prev) => prev.map((file) => (
+        file.id === updatedFile.id ? updatedFile : file
+      )));
+      setChangePreview(null);
+      setPendingExtension(null);
+    } catch (err) {
+      console.error('Apply SOP extension error:', err);
+      setErrorMessage(err.message || 'Gagal menerapkan tambahan SOP.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDiscardExtension = () => {
+    setChangePreview(null);
+    setPendingExtension(null);
+  };
+
+  const handleCopilotMessagesChange = useCallback((messages) => {
+    if (!activeFile?.id || copilotSession.fileId !== activeFile.id || !copilotSession.loaded) return;
+    persistCopilotChat(activeFile.id, messages).catch((err) => {
+      console.error('Persist Copilot chat error:', err);
+      setErrorMessage(err.message || 'Gagal menyimpan riwayat Copilot.');
+    });
+  }, [activeFile?.id, copilotSession.fileId, copilotSession.loaded]);
 
   const handleTrySample = useCallback(() => {
     if (isLoading) return;
@@ -421,17 +636,29 @@ export default function App() {
         <aside className={`sidebar${sidebarOpen ? '' : ' sidebar--collapsed'}`}>
           <div className="sidebar__header">
             <div className="sidebar__title">
-              {isRealMode ? 'Ekstraksi Dokumen SOP' : 'Input Dokumen SOP'}
+              {activeFile ? `Sumber SOP${activeFile.name ? ` · ${activeFile.name}` : ''}` : 'Tambahkan Sumber SOP'}
             </div>
             <p className="sidebar__description">
-              Masukkan alur operasional standar untuk disintesis menjadi diagram BPMN 2.0.
+              {activeFile
+                ? activeFile.sopFileName
+                  ? `Berkas sumber tersimpan: ${activeFile.sopFileName}`
+                  : 'Sumber tersimpan terpisah pada file BPMN aktif.'
+                : 'Masukkan teks atau unggah berkas. Sistem akan membuat file BPMN baru.'}
             </p>
           </div>
 
           <div className="sidebar__content">
             <SopUploader
+              key={activeFile?.id || 'no-active-file'}
               onProcessText={handleProcessText}
               onProcessFile={handleProcessFile}
+              onSourceTextChange={handleSourceTextChange}
+              onSourceFileChange={handleSourceFileChange}
+              onClearSourceFile={handleClearSourceFile}
+              fileId={activeFile?.id || ''}
+              sourceFile={sourceFile}
+              hasExistingGraph={Boolean(activeFile?.intermediateGraph?.nodes?.length)}
+              isNewFile={!activeFile}
               isLoading={isLoading}
               isRealMode={isRealMode}
               highlightedCitation={highlightedCitation}
@@ -462,6 +689,8 @@ export default function App() {
             onNewTab={handleNewTab}
             onImportFile={handleImportFile}
             onRenameTab={handleRenameTab}
+            onCreateFromSopFile={handleCreateFromSopFile}
+            isCreatingFile={isLoading}
           />
 
           {/* BPMN Canvas & Visual Editor for Active Tab */}
@@ -491,6 +720,7 @@ export default function App() {
         {/* RIGHT - AI Copilot Panel (Investigasi SOP & Analisis Kaidah BPMN) */}
         <aside className={`detail-panel${detailOpen ? '' : ' detail-panel--collapsed'}`}>
           <AiCopilotPanel
+            key={`${activeFile?.id || 'no-file'}-${copilotSession.loaded ? 'loaded' : 'loading'}`}
             sopText={activeFile?.sopText || ''}
             processName={activeFile?.processName || ''}
             selectedElement={selectedElement}
@@ -500,6 +730,8 @@ export default function App() {
             onClose={() => setDetailOpen(false)}
             isRealMode={isRealMode}
             externalPrompt={copilotExternalPrompt}
+            initialMessages={copilotSession.fileId === activeFile?.id ? copilotSession.messages : []}
+            onMessagesChange={handleCopilotMessagesChange}
           />
         </aside>
       </div>
@@ -535,6 +767,18 @@ export default function App() {
         onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
         onToggleDetail={() => setDetailOpen((prev) => !prev)}
         isRealMode={isRealMode}
+      />
+
+      <ChangePreviewModal
+        isOpen={Boolean(changePreview)}
+        previewData={changePreview}
+        currentGraph={activeFile?.intermediateGraph}
+        currentXml={activeFile?.bpmnXml}
+        processName={activeFile?.processName || activeFile?.name}
+        sourceText={pendingExtension?.text}
+        onApply={handleApplyExtension}
+        onDiscard={handleDiscardExtension}
+        isLoading={isLoading}
       />
     </div>
   );

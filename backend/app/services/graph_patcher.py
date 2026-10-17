@@ -1,6 +1,7 @@
 import copy
 import json
 import logging
+import re
 from typing import Dict, Any, List, Tuple, Optional
 from app.schemas.process_graph import AutoBPMNGraph, Node, Edge
 from app.schemas.graph_patch import GraphPatch, AiEditRequest
@@ -309,10 +310,18 @@ Aturan operasi:
 - insert_step_between: {"op": "insert_step_between", "from_node": "...", "to_node": "...", "new_node": {"id": "...", "type": "...", "name": "...", "actor": "..."}, "condition_from": null, "condition_to": null}
 
 Jaga agar diagram tetap valid BPMN 2.0 (selalu terhubung dari startEvent ke endEvent tanpa deadlock).
+Jika SOP Tambahan diberikan, perlakukan sebagai extend: pertahankan seluruh langkah dan alur yang ada,
+gunakan operasi penambahan/penyisipan saja, dan jangan menghapus atau mengganti bagian lama.
 """
 
+    sop_context = (
+        f"\nSOP Tambahan yang menjadi sumber perubahan:\n{request.sop_context}\n"
+        if request.sop_context
+        else ""
+    )
     prompt_user = f"""Konteks Diagram Saat Ini:
 {scoped_ctx}
+{sop_context}
 
 Instruksi Perubahan:
 "{request.prompt}"
@@ -331,7 +340,14 @@ Hasilkan JSON GraphPatch yang valid."""
             clean_text = clean_text[:-3]
 
         parsed = json.loads(clean_text.strip())
-        return GraphPatch(**parsed)
+        patch = GraphPatch(**parsed)
+        additive_operations = {"add_node", "add_edge", "insert_step_between"}
+        if request.sop_context and any(
+            operation.get("op") not in additive_operations
+            for operation in patch.operations
+        ):
+            raise ValueError("Extend hanya boleh menambahkan atau menyisipkan langkah.")
+        return patch
 
     except Exception as e:
         logger.warning(f"AI Edit LLM call failed or fell back: {e}. Menggunakan simulasi lokal cerdas.")
@@ -346,6 +362,53 @@ def generate_simulated_patch(request: AiEditRequest) -> GraphPatch:
     prompt_lower = request.prompt.lower()
     graph = request.current_graph
     sel_id = request.selected_node_id
+
+    if request.sop_context and request.sop_context.strip():
+        end_ids = {node.id for node in graph.nodes if node.type == "endEvent"}
+        end_edge = next((edge for edge in graph.edges if edge.to_node in end_ids), None)
+        if not end_edge:
+            raise ValueError("Tidak ditemukan alur menuju akhir proses untuk menambahkan langkah SOP.")
+
+        names = []
+        for line in re.split(r"[\r\n]+|(?<=[.!?])\s+", request.sop_context):
+            cleaned = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", line).strip()
+            if re.match(r"^(?:sop(?:\s|:)|standar operasional prosedur\b)", cleaned, re.IGNORECASE):
+                continue
+            if len(cleaned) > 4:
+                names.append(cleaned[:100])
+            if len(names) == 4:
+                break
+        if not names:
+            raise ValueError("Tambahkan setidaknya satu langkah baru untuk memperluas diagram.")
+
+        used_ids = {node.id for node in graph.nodes}
+        operations = []
+        previous_id = end_edge.from_node
+        for index, name in enumerate(names, start=1):
+            node_id = f"extend_step_{len(graph.nodes) + index}"
+            while node_id in used_ids:
+                node_id += "_new"
+            used_ids.add(node_id)
+            operations.append({
+                "op": "insert_step_between",
+                "from_node": previous_id,
+                "to_node": end_edge.to_node,
+                "new_node": {
+                    "id": node_id,
+                    "type": "userTask",
+                    "name": name,
+                    "actor": "Belum ditentukan",
+                },
+            })
+            previous_id = node_id
+
+        return GraphPatch(
+            patch_id="sim_patch_extend_sop",
+            description=f"Menambahkan {len(names)} langkah dari sumber SOP",
+            rationale="Diagram yang sudah ada dipertahankan; hanya langkah tambahan yang disisipkan.",
+            target_node_ids=[end_edge.from_node, end_edge.to_node],
+            operations=operations,
+        )
 
     # Skenario 1: Ubah penanggung jawab / aktor
     if "ubah" in prompt_lower and ("aktor" in prompt_lower or "peran" in prompt_lower or "pelaksana" in prompt_lower or "menjadi" in prompt_lower):

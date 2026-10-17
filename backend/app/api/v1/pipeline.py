@@ -64,7 +64,8 @@ async def process_sop_text(payload: TextInputRequest):
         process_name=graph.process_name,
         validation=ValidationReport(**val_result),
         intermediate_graph=graph,
-        bpmn_xml=bpmn_xml
+        bpmn_xml=bpmn_xml,
+        source_text=payload.text_content,
     )
 
 @router.post("/process-file", response_model=PipelineResponse)
@@ -223,5 +224,4 @@ async def apply_patch_endpoint(payload: ApplyPatchRequest):
         intermediate_graph=new_graph,
         bpmn_xml=bpmn_xml
     )
-
 

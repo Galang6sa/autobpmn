@@ -7,6 +7,109 @@ import { syncXmlToGraph, validateGraphLocally } from './graphModel';
 
 const STORAGE_KEY = 'autobpmn_tabs_v2';
 const ACTIVE_TAB_KEY = 'autobpmn_active_tab_v2';
+const SOP_SOURCE_DB = 'autobpmn_sop_sources';
+const SOP_SOURCE_STORE = 'files';
+const COPILOT_CHAT_STORE = 'chats';
+
+let sopSourceDbPromise;
+
+function openSopSourceDb() {
+  if (typeof indexedDB === 'undefined') {
+    return Promise.reject(new Error('Penyimpanan berkas sumber tidak tersedia di browser ini.'));
+  }
+  if (!sopSourceDbPromise) {
+    sopSourceDbPromise = new Promise((resolve, reject) => {
+      const request = indexedDB.open(SOP_SOURCE_DB, 2);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(SOP_SOURCE_STORE)) {
+          db.createObjectStore(SOP_SOURCE_STORE);
+        }
+        if (!db.objectStoreNames.contains(COPILOT_CHAT_STORE)) {
+          db.createObjectStore(COPILOT_CHAT_STORE);
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error('Gagal membuka penyimpanan sumber SOP.'));
+      request.onblocked = () => reject(new Error('Penyimpanan sumber SOP sedang diblokir tab lain.'));
+    });
+  }
+  return sopSourceDbPromise;
+}
+
+export async function persistSopSource(fileId, file) {
+  const db = await openSopSourceDb();
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction(SOP_SOURCE_STORE, 'readwrite');
+    transaction.objectStore(SOP_SOURCE_STORE).put({
+      blob: file,
+      name: file.name,
+      type: file.type,
+      lastModified: file.lastModified,
+    }, fileId);
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error || new Error('Gagal menyimpan berkas sumber SOP.'));
+    transaction.onabort = () => reject(transaction.error || new Error('Penyimpanan berkas sumber SOP dibatalkan.'));
+  });
+}
+
+export async function loadPersistedSopSource(fileId) {
+  const db = await openSopSourceDb();
+  const record = await new Promise((resolve, reject) => {
+    const transaction = db.transaction(SOP_SOURCE_STORE, 'readonly');
+    const request = transaction.objectStore(SOP_SOURCE_STORE).get(fileId);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error || new Error('Gagal memuat berkas sumber SOP.'));
+  });
+  if (!record) return null;
+  return new File([record.blob], record.name, {
+    type: record.type || record.blob.type,
+    lastModified: record.lastModified,
+  });
+}
+
+export async function removePersistedSopSource(fileId) {
+  const db = await openSopSourceDb();
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction(SOP_SOURCE_STORE, 'readwrite');
+    transaction.objectStore(SOP_SOURCE_STORE).delete(fileId);
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error || new Error('Gagal menghapus berkas sumber SOP.'));
+    transaction.onabort = () => reject(transaction.error || new Error('Penghapusan berkas sumber SOP dibatalkan.'));
+  });
+}
+
+export async function loadPersistedCopilotChat(fileId) {
+  const db = await openSopSourceDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(COPILOT_CHAT_STORE, 'readonly');
+    const request = transaction.objectStore(COPILOT_CHAT_STORE).get(fileId);
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error || new Error('Gagal memuat riwayat Copilot.'));
+  });
+}
+
+export async function persistCopilotChat(fileId, messages) {
+  const db = await openSopSourceDb();
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction(COPILOT_CHAT_STORE, 'readwrite');
+    transaction.objectStore(COPILOT_CHAT_STORE).put(messages, fileId);
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error || new Error('Gagal menyimpan riwayat Copilot.'));
+    transaction.onabort = () => reject(transaction.error || new Error('Penyimpanan riwayat Copilot dibatalkan.'));
+  });
+}
+
+export async function removePersistedCopilotChat(fileId) {
+  const db = await openSopSourceDb();
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction(COPILOT_CHAT_STORE, 'readwrite');
+    transaction.objectStore(COPILOT_CHAT_STORE).delete(fileId);
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error || new Error('Gagal menghapus riwayat Copilot.'));
+    transaction.onabort = () => reject(transaction.error || new Error('Penghapusan riwayat Copilot dibatalkan.'));
+  });
+}
 
 /**
  * Buat diagram kosong baru (Blank Starter Diagram)
@@ -17,16 +120,9 @@ export function createBlankProcess(index = 1) {
   const graph = {
     process_id: processId,
     process_name: processName,
-    actors: ['Pemohon'],
-    nodes: [
-      { id: 'start_1', type: 'startEvent', name: 'Mulai', actor: 'Pemohon' },
-      { id: 'task_1', type: 'userTask', name: 'Aktivitas Utama', actor: 'Pemohon' },
-      { id: 'end_1', type: 'endEvent', name: 'Selesai', actor: 'Pemohon' },
-    ],
-    edges: [
-      { from_node: 'start_1', to_node: 'task_1', condition: null },
-      { from_node: 'task_1', to_node: 'end_1', condition: null },
-    ],
+    actors: [],
+    nodes: [],
+    edges: [],
   };
 
   const xml = makeBpmnXml(graph);
@@ -35,7 +131,7 @@ export function createBlankProcess(index = 1) {
     name: `Untitled-${index}.bpmn`,
     processName,
     intermediateGraph: graph,
-    validation: { is_valid: true, issues: [], deadlocks: [], orphan_nodes: [] },
+    validation: { is_valid: false, issues: ['Diagram kosong. Tambahkan sumber SOP atau elemen BPMN.'], deadlocks: [], orphan_nodes: [] },
     bpmnXml: xml,
     sopText: '',
     isDirty: false,

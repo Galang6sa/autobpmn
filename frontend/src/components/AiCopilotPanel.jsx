@@ -22,8 +22,10 @@ export default function AiCopilotPanel({
   onClose,
   isRealMode,
   externalPrompt = null,
+  initialMessages = [],
+  onMessagesChange,
 }) {
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(initialMessages);
   const [inputValue, setInputValue] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingStatus, setStreamingStatus] = useState(null);
@@ -42,6 +44,10 @@ export default function AiCopilotPanel({
   useEffect(() => {
     scrollToBottom();
   }, [messages, streamingStatus]);
+
+  useEffect(() => {
+    onMessagesChange?.(messages);
+  }, [messages, onMessagesChange]);
 
   // Fokuskan textarea saat node BPMN dipilih agar BA langsung siap bertanya
   useEffect(() => {

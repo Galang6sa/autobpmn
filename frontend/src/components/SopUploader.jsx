@@ -13,15 +13,40 @@ const SAMPLE_SOP = `SOP Pengadaan Perlengkapan Kantor
 export default function SopUploader({
   onProcessText,
   onProcessFile,
+  onSourceTextChange,
+  onSourceFileChange,
+  onClearSourceFile,
+  fileId,
+  sourceFile = null,
+  hasExistingGraph = false,
+  isNewFile = false,
   isLoading,
   isRealMode = false,
   highlightedCitation = null,
+  initialText = '',
 }) {
   const [tab, setTab] = useState('text');
-  const [text, setText] = useState('');
-  const [file, setFile] = useState(null);
+  const [text, setText] = useState(initialText);
+  const [extendText, setExtendText] = useState('');
+  const [file, setFile] = useState(sourceFile);
   const [isDragging, setIsDragging] = useState(false);
+  const [processMode, setProcessMode] = useState('replace');
   const fileRef = useRef(null);
+
+  useEffect(() => {
+    setText(initialText || '');
+    setExtendText('');
+    setFile(sourceFile || null);
+    setProcessMode('replace');
+  }, [fileId]);
+
+  useEffect(() => {
+    setText(initialText || '');
+  }, [initialText]);
+
+  useEffect(() => {
+    setFile(sourceFile || null);
+  }, [sourceFile, fileId]);
 
   // Global & scoped keyboard shortcuts for SopUploader
   useEffect(() => {
@@ -30,45 +55,92 @@ export default function SopUploader({
       if (e.altKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
         e.preventDefault();
         setTab('text');
-        setText(SAMPLE_SOP);
+        if (processMode === 'extend') {
+          setExtendText(SAMPLE_SOP);
+        } else {
+          setText(SAMPLE_SOP);
+          onSourceTextChange?.(SAMPLE_SOP);
+        }
         return;
       }
 
       // Ctrl+Enter or Cmd+Enter to submit
       if ((e.ctrlKey || e.metaKey) && (e.key === 'Enter' || e.code === 'Enter' || e.code === 'NumpadEnter')) {
-        if (tab === 'text' && text.trim() && !isLoading) {
+        if (tab === 'text' && (processMode === 'extend' ? extendText : text).trim() && !isLoading) {
           e.preventDefault();
-          onProcessText(text);
-        } else if (tab === 'file' && file && !isLoading) {
+          onProcessText(processMode === 'extend' ? extendText : text, processMode);
+        } else if (tab === 'file' && file && processMode !== 'extend' && !isLoading) {
           e.preventDefault();
-          onProcessFile(file);
+          onProcessFile(file, processMode);
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [tab, text, file, isLoading, onProcessText, onProcessFile]);
+  }, [tab, text, extendText, file, processMode, isLoading, onProcessText, onProcessFile, onSourceTextChange]);
 
   const handleTextSubmit = (e) => {
     e.preventDefault();
-    if (!text.trim() || isLoading) return;
-    onProcessText(text);
+    const sourceText = processMode === 'extend' ? extendText : text;
+    if (!sourceText.trim() || isLoading) return;
+    onProcessText(sourceText, processMode);
   };
 
   const handleFileSubmit = (e) => {
     e.preventDefault();
-    if (!file || isLoading) return;
-    onProcessFile(file);
+    if (!file || isLoading || processMode === 'extend') return;
+    onProcessFile(file, processMode);
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files?.[0]) setFile(e.dataTransfer.files[0]);
+    if (processMode === 'extend') return;
+    if (e.dataTransfer.files?.[0]) {
+      setFile(e.dataTransfer.files[0]);
+      onSourceFileChange?.(e.dataTransfer.files[0]);
+    }
   };
 
   return (
     <>
+      {isNewFile && (
+        <div className="sop-empty-note">
+          <FileText size={15} aria-hidden="true" />
+          <span>Tambahkan sumber SOP. Hasilnya akan dibuat sebagai file BPMN baru.</span>
+        </div>
+      )}
+
+      <div className="sop-process-mode" role="group" aria-label="Mode pemrosesan sumber SOP">
+        <button
+          type="button"
+          className={`sop-process-mode__option${processMode === 'replace' ? ' sop-process-mode__option--active' : ''}`}
+          onClick={() => setProcessMode('replace')}
+          aria-pressed={processMode === 'replace'}
+        >
+          <span>Proses ulang</span>
+          <small>{hasExistingGraph ? 'Ganti diagram aktif' : 'Buat diagram'}</small>
+        </button>
+        <button
+          type="button"
+          className={`sop-process-mode__option${processMode === 'extend' ? ' sop-process-mode__option--active' : ''}`}
+          onClick={() => setProcessMode('extend')}
+          disabled={!hasExistingGraph}
+          aria-pressed={processMode === 'extend'}
+          title={!hasExistingGraph ? 'Buat diagram BPMN terlebih dahulu' : 'Tinjau tambahan sebelum diterapkan'}
+        >
+          <span>Extend</span>
+          <small>Tinjau tambahan</small>
+        </button>
+      </div>
+      <p className="sop-process-mode__hint">
+        {processMode === 'extend'
+          ? 'Sumber baru akan menjadi usulan perubahan; diagram lama tetap aman sampai Anda menerapkan preview.'
+          : hasExistingGraph
+            ? 'Sumber SOP ini akan mengganti diagram pada file aktif.'
+            : 'Sumber SOP disimpan pada file BPMN yang dihasilkan.'}
+      </p>
+
       {/* Tab Switcher */}
       <div className="tabs">
         <button
@@ -92,12 +164,19 @@ export default function SopUploader({
         <form onSubmit={handleTextSubmit} className="input-group">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <label htmlFor="sop-textarea" className="input-label">
-              Teks Narasi SOP
+              {processMode === 'extend' ? 'Tambahan SOP' : 'Teks Narasi SOP'}
             </label>
             <button
               type="button"
               className="sample-btn"
-              onClick={() => setText(SAMPLE_SOP)}
+              onClick={() => {
+                if (processMode === 'extend') {
+                  setExtendText(SAMPLE_SOP);
+                } else {
+                  setText(SAMPLE_SOP);
+                  onSourceTextChange?.(SAMPLE_SOP);
+                }
+              }}
               title="Isi dengan contoh SOP pengadaan (Alt+S)"
             >
               <Sparkles size={13} />
@@ -120,25 +199,44 @@ export default function SopUploader({
           <textarea
             id="sop-textarea"
             className={`text-input${highlightedCitation ? ' text-input--highlighted' : ''}`}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Tulis atau tempel teks SOP untuk diekstrak menjadi alur proses BPMN 2.0..."
+            value={processMode === 'extend' ? extendText : text}
+            onChange={(e) => {
+              if (processMode === 'extend') {
+                setExtendText(e.target.value);
+              } else {
+                setText(e.target.value);
+                onSourceTextChange?.(e.target.value);
+              }
+            }}
+            placeholder={processMode === 'extend'
+              ? 'Masukkan langkah baru yang ingin ditambahkan ke diagram...'
+              : 'Tulis atau tempel teks SOP untuk diekstrak menjadi alur proses BPMN 2.0...'}
             rows={10}
           />
           <div className="input-meta">
-            <span>{text.trim() ? `${text.trim().split(/\s+/).length} kata` : 'Minimal satu langkah proses'}</span>
+            <span>
+              {(processMode === 'extend' ? extendText : text).trim()
+                ? `${(processMode === 'extend' ? extendText : text).trim().split(/\s+/).length} kata`
+                : 'Minimal satu langkah proses'}
+            </span>
             <span>{isRealMode ? 'Backend API' : 'Simulasi lokal'}</span>
           </div>
           <button
             type="submit"
-            disabled={!text.trim() || isLoading}
+            disabled={!(processMode === 'extend' ? extendText : text).trim() || isLoading}
             className={`btn btn--primary${isLoading ? ' btn--loading' : ''}`}
-            title="Ekstrak alur proses (Ctrl+Enter)"
+            title={`${processMode === 'extend' ? 'Buat preview tambahan' : 'Proses sumber SOP'} (Ctrl+Enter)`}
           >
             <span className="btn__spinner" aria-hidden="true" />
             {isLoading ? 'Mengekstrak alur proses...' : (
               <>
-                <span>{isRealMode ? 'Ekstrak ke BPMN' : 'Jalankan Simulasi'}</span>
+                <span>
+                  {processMode === 'extend'
+                    ? 'Tinjau tambahan'
+                    : isNewFile
+                      ? 'Buat file BPMN'
+                      : 'Proses ulang & ganti diagram'}
+                </span>
                 <ArrowUpRight size={14} style={{ marginLeft: 2 }} />
               </>
             )}
@@ -150,14 +248,20 @@ export default function SopUploader({
       {tab === 'file' && (
         <form onSubmit={handleFileSubmit} className="input-group">
           <label className="input-label">
-            {isRealMode ? 'Pilih berkas SOP (.pdf, .txt)' : 'Pilih berkas untuk simulasi'}
+            {isRealMode ? 'Berkas sumber SOP (.pdf, .txt)' : 'Berkas sumber untuk simulasi'}
           </label>
+
+          {processMode === 'extend' ? (
+            <div className="sop-file-note">
+              Untuk mode extend, tambahkan langkah baru melalui tab <strong>Teks Narasi</strong>.
+            </div>
+          ) : null}
 
           {!file ? (
             <div
-              className={`dropzone ${isDragging ? 'dropzone--active' : ''}`}
-              onClick={() => fileRef.current?.click()}
-              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+              className={`dropzone ${isDragging ? 'dropzone--active' : ''}${processMode === 'extend' ? ' dropzone--disabled' : ''}`}
+              onClick={() => processMode !== 'extend' && fileRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); if (processMode !== 'extend') setIsDragging(true); }}
               onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
             >
@@ -173,7 +277,14 @@ export default function SopUploader({
                 type="file"
                 accept=".pdf,.txt"
                 className="sr-only"
-                onChange={(e) => e.target.files?.[0] && setFile(e.target.files[0])}
+                disabled={processMode === 'extend'}
+                onChange={(e) => {
+                  const selectedFile = e.target.files?.[0];
+                  if (selectedFile) {
+                    setFile(selectedFile);
+                    onSourceFileChange?.(selectedFile);
+                  }
+                }}
               />
             </div>
           ) : (
@@ -183,7 +294,11 @@ export default function SopUploader({
               <button
                 type="button"
                 className="dropzone__file__remove"
-                onClick={() => setFile(null)}
+                onClick={() => {
+                  setFile(null);
+                  onClearSourceFile?.();
+                }}
+                disabled={processMode === 'extend'}
                 aria-label="Hapus berkas"
               >
                 ×
@@ -193,7 +308,7 @@ export default function SopUploader({
 
           <button
             type="submit"
-            disabled={!file || isLoading}
+            disabled={!file || isLoading || processMode === 'extend'}
             className={`btn btn--primary${isLoading ? ' btn--loading' : ''}`}
             title="Unggah dan ekstrak alur proses (Ctrl+Enter)"
           >
@@ -201,7 +316,15 @@ export default function SopUploader({
             {isLoading ? 'Memproses berkas SOP...' : (
               <>
                 <Send size={14} />
-                <span>{isRealMode ? 'Unggah & Ekstrak BPMN' : 'Jalankan Simulasi'}</span>
+                <span>
+                  {isLoading
+                    ? 'Memproses berkas SOP...'
+                    : isNewFile
+                      ? 'Buat file BPMN'
+                      : hasExistingGraph
+                        ? 'Proses ulang & ganti diagram'
+                        : 'Buat diagram BPMN'}
+                </span>
               </>
             )}
           </button>
