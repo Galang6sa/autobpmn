@@ -7,9 +7,11 @@ import { ZoomIn, ZoomOut, Maximize2, Download, Sparkles, Workflow, ScanLine } fr
 
 const FIRST_RUN_KEY = 'autobpmn-first-run-done';
 
-export default function BpmnViewer({ xml, processName = '', onTrySample }) {
+export default function BpmnViewer({ xml, processName = '', onTrySample, onSelectElement }) {
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
+  const onSelectRef = useRef(onSelectElement);
+  onSelectRef.current = onSelectElement;
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [firstRun, setFirstRun] = useState(() => !localStorage.getItem(FIRST_RUN_KEY));
@@ -20,6 +22,28 @@ export default function BpmnViewer({ xml, processName = '', onTrySample }) {
     if (!containerRef.current) return;
     const viewer = new BpmnJS({ container: containerRef.current });
     viewerRef.current = viewer;
+
+    const handleElementClick = (e) => {
+      const el = e.element;
+      if (!el || el.type === 'bpmn:Process' || el.id.startsWith('Process_')) {
+        if (onSelectRef.current) onSelectRef.current(null);
+        return;
+      }
+      if (onSelectRef.current) {
+        onSelectRef.current({
+          id: el.id,
+          type: el.type ? el.type.replace('bpmn:', '') : 'Element',
+          rawType: el.type,
+          name: el.businessObject?.name || el.id,
+          incomingCount: el.incoming?.length || 0,
+          outgoingCount: el.outgoing?.length || 0,
+          documentation: el.businessObject?.documentation?.[0]?.text || '',
+        });
+      }
+    };
+
+    viewer.on('element.click', handleElementClick);
+
     return () => viewer.destroy();
   }, []);
 

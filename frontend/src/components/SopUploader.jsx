@@ -9,7 +9,7 @@ const SAMPLE_SOP = `SOP Pengadaan Perlengkapan Kantor
 5. Vendor terpilih mengirimkan barang pesanan ke kantor.
 6. Pemohon menerima barang dan menandatangani berita acara penerimaan.`;
 
-export default function SopUploader({ onProcessText, onProcessFile, isLoading }) {
+export default function SopUploader({ onProcessText, onProcessFile, isLoading, isRealMode = false }) {
   const [tab, setTab] = useState('text');
   const [text, setText] = useState('');
   const [file, setFile] = useState(null);
@@ -58,14 +58,16 @@ export default function SopUploader({ onProcessText, onProcessFile, isLoading })
       {tab === 'text' && (
         <form onSubmit={handleTextSubmit} className="input-group">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <label htmlFor="sop-textarea" className="input-label">Masukan demo</label>
+            <label htmlFor="sop-textarea" className="input-label">
+              {isRealMode ? 'Teks SOP' : 'Masukan demo'}
+            </label>
             <button
               type="button"
               className="sample-btn"
               onClick={() => setText(SAMPLE_SOP)}
             >
               <Sparkles style={{ width: 12, height: 12 }} />
-              Contoh
+              Contoh SOP
             </button>
           </div>
           <textarea
@@ -73,18 +75,22 @@ export default function SopUploader({ onProcessText, onProcessFile, isLoading })
             className="text-input"
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Tulis atau tempel SOP untuk memulai simulasi diagram..."
+            placeholder={isRealMode ? "Ketik atau tempel teks SOP untuk diekstrak menjadi BPMN 2.0..." : "Tulis atau tempel SOP untuk memulai simulasi diagram..."}
           />
-          <div className="input-meta"><span>{text.trim() ? `${text.trim().split(/\s+/).length} kata` : 'Minimal satu langkah proses'}</span><span>Tidak dikirim</span></div>
+          <div className="input-meta">
+            <span>{text.trim() ? `${text.trim().split(/\s+/).length} kata` : 'Minimal satu langkah proses'}</span>
+            <span>{isRealMode ? 'Kirim ke backend FastAPI' : 'Simulasi lokal'}</span>
+          </div>
           <button
             type="submit"
             disabled={!text.trim() || isLoading}
             className={`btn btn--primary${isLoading ? ' btn--loading' : ''}`}
           >
             <span className="btn__spinner" aria-hidden="true" />
-            {isLoading ? 'Mengekstrak...' : (
+            {isLoading ? 'Mengekstrak alur proses...' : (
               <>
-                Jalankan simulasi <ArrowUpRight style={{ width: 15, height: 15 }} />
+                {isRealMode ? 'Ekstrak ke BPMN' : 'Jalankan simulasi'}
+                <ArrowUpRight style={{ width: 15, height: 15 }} />
               </>
             )}
           </button>
@@ -94,7 +100,9 @@ export default function SopUploader({ onProcessText, onProcessFile, isLoading })
       {/* File Tab */}
       {tab === 'file' && (
         <form onSubmit={handleFileSubmit} className="input-group">
-          <label className="input-label">Pilih berkas untuk simulasi</label>
+          <label className="input-label">
+            {isRealMode ? 'Pilih berkas SOP (.pdf, .txt)' : 'Pilih berkas untuk simulasi'}
+          </label>
 
           {!file ? (
             <div
@@ -106,10 +114,10 @@ export default function SopUploader({ onProcessText, onProcessFile, isLoading })
             >
               <span className="dropzone__icon"><UploadCloud size={22} /></span>
               <div className="dropzone__text">
-                Pilih berkas lokal
+                Pilih atau seret berkas SOP
               </div>
               <div className="dropzone__hint">
-                tidak diunggah · PDF atau TXT
+                {isRealMode ? 'PDF atau TXT · Diproses oleh backend FastAPI' : 'tidak diunggah · PDF atau TXT'}
               </div>
               <input
                 ref={fileRef}
@@ -140,10 +148,10 @@ export default function SopUploader({ onProcessText, onProcessFile, isLoading })
             className={`btn btn--primary${isLoading ? ' btn--loading' : ''}`}
           >
             <span className="btn__spinner" aria-hidden="true" />
-            {isLoading ? 'Memproses...' : (
+            {isLoading ? 'Memproses berkas SOP...' : (
               <>
                 <Send style={{ width: 14, height: 14 }} />
-                Jalankan simulasi
+                {isRealMode ? 'Unggah & Ekstrak BPMN' : 'Jalankan simulasi'}
               </>
             )}
           </button>
