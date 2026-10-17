@@ -18,12 +18,12 @@ export default function GraphJsonEditor({ graphData }) {
         <button
           onClick={handleCopy}
           disabled={!graphData}
-          className="toolbar-btn"
-          style={{ background: 'transparent', border: 'none', color: '#a1a1aa', fontSize: 10 }}
+          className="json-preview__copy"
+          aria-label="Salin JSON"
         >
           {copied
-            ? <><Check style={{ width: 12, height: 12, color: '#10b981' }} /> Copied</>
-            : <><Copy style={{ width: 12, height: 12 }} /> Copy</>
+            ? <><Check style={{ width: 12, height: 12 }} aria-hidden="true" /> Copied</>
+            : <><Copy style={{ width: 12, height: 12 }} aria-hidden="true" /> Copy</>
           }
         </button>
       </div>

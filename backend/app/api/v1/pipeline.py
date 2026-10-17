@@ -5,7 +5,11 @@ import json
 from app.schemas.pipeline import TextInputRequest, PipelineResponse, ValidationReport
 from app.schemas.process_graph import AutoBPMNGraph
 from app.services.ingestion import extract_text_from_file
-from app.services.extractor import extract_sop_to_graph
+from app.services.extractor import (
+    InputTooLargeError,
+    ProviderConfigurationError,
+    extract_sop_to_graph,
+)
 from app.services.validator import validate_process_graph
 from app.services.bpmn_synthesizer import generate_bpmn_xml
 
@@ -21,10 +25,14 @@ async def process_sop_text(payload: TextInputRequest):
     try:
         import asyncio
         graph: AutoBPMNGraph = await asyncio.to_thread(extract_sop_to_graph, payload.text_content)
-    except Exception as e:
+    except InputTooLargeError as e:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(e))
+    except ProviderConfigurationError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+    except Exception:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Gagal melakukan ekstraksi LLM: {str(e)}"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Provider AI sementara tidak tersedia atau quota free tier sedang penuh. Coba lagi sebentar, atau periksa provider utama."
         )
 
     # 2. Validation (Verifikasi Logika Graf & Integritas Alur)

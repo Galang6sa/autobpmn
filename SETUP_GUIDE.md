@@ -34,7 +34,7 @@ Jika Anda baru pertama kali memasang proyek ini di laptop/PC baru:
 
 ### Langkah 2: Isi API Key AI (Gratis)
 
-AutoBPMN membutuhkan model AI untuk membaca dokumen SOP Anda. Anda cukup memilih **salah satu**:
+AutoBPMN membutuhkan model AI untuk membaca dokumen SOP Anda. Untuk penggunaan gratis yang paling konsisten, pilih **Google Gemini** sebagai provider utama. Groq dipakai sebagai fallback cepat, sedangkan OpenRouter free hanya fallback pengembangan karena kuotanya lebih kecil dan modelnya dapat berubah.
 
 1. Buka file bernama **`.env`** di folder utama menggunakan Notepad / VS Code.
 2. Isi salah satu kunci berikut:
@@ -46,6 +46,8 @@ AutoBPMN membutuhkan model AI untuk membaca dokumen SOP Anda. Anda cukup memilih
 | **Google Gemini** | [aistudio.google.com](https://aistudio.google.com/app/apikey) | `GEMINI_API_KEY=AIzaSy...` |
 
 *(Cukup isi 1 saja sudah langsung jalan. Simpan file `.env`)*.
+
+> Untuk menjaga request tetap berada dalam batas free tier cloud, AutoBPMN menerima maksimal sekitar **16.000 karakter teks** setelah PDF diekstrak. Jika SOP lebih panjang, pisahkan per prosedur atau hilangkan lampiran terlebih dahulu.
 
 ---
 

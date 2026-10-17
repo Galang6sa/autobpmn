@@ -3,13 +3,18 @@ import BpmnJS from 'bpmn-js/lib/NavigatedViewer';
 import 'bpmn-js/dist/assets/diagram-js.css';
 import 'bpmn-js/dist/assets/bpmn-js.css';
 import 'bpmn-js/dist/assets/bpmn-font/css/bpmn.css';
-import { ZoomIn, ZoomOut, Maximize2, Download } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize2, Download, Sparkles, Workflow, ScanLine } from 'lucide-react';
 
-export default function BpmnViewer({ xml, processName = '' }) {
+const FIRST_RUN_KEY = 'autobpmn-first-run-done';
+
+export default function BpmnViewer({ xml, processName = '', onTrySample }) {
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [firstRun, setFirstRun] = useState(() => !localStorage.getItem(FIRST_RUN_KEY));
+  const [showNudge, setShowNudge] = useState(false);
+  const prevXml = useRef(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -26,6 +31,15 @@ export default function BpmnViewer({ xml, processName = '' }) {
       try {
         await viewerRef.current.importXML(xml);
         viewerRef.current.get('canvas').zoom('fit-viewport');
+        // First success: retire the first-run guide and show the download nudge
+        if (xml !== prevXml.current) {
+          if (firstRun) {
+            localStorage.setItem(FIRST_RUN_KEY, '1');
+            setFirstRun(false);
+          }
+          setShowNudge(true);
+        }
+        prevXml.current = xml;
       } catch (err) {
         setError(err.message || 'Gagal merender diagram.');
       } finally {
@@ -59,27 +73,39 @@ export default function BpmnViewer({ xml, processName = '' }) {
       {/* Toolbar */}
       <div className="canvas-toolbar">
         <div className="canvas-toolbar__left">
-          <span className="canvas-toolbar__label">Canvas</span>
-          {processName && <span className="canvas-toolbar__badge">{processName}</span>}
+          <span className="canvas-toolbar__label"><Workflow size={14} /> Diagram proses</span>
+          {processName ? <span className="canvas-toolbar__badge">{processName}</span> : <span className="canvas-toolbar__hint">Fixture belum dijalankan</span>}
         </div>
 
         <div className="canvas-legend">
-          <div className="legend-item"><span className="legend-dot legend-dot--start" />Start</div>
-          <div className="legend-item"><span className="legend-dot legend-dot--task" />Task</div>
-          <div className="legend-item"><span className="legend-dot legend-dot--service" />Service</div>
-          <div className="legend-item"><span className="legend-dot legend-dot--gw" />Decision</div>
-          <div className="legend-item"><span className="legend-dot legend-dot--end" />End</div>
+          <div className="legend-item"><span className="legend-dot legend-dot--start" />Mulai</div>
+          <div className="legend-item"><span className="legend-dot legend-dot--task" />Aktivitas</div>
+          <div className="legend-item"><span className="legend-dot legend-dot--gw" />Keputusan</div>
         </div>
 
         <div className="canvas-toolbar__right">
-          <button className="toolbar-btn" onClick={() => zoom(0.2)} title="Zoom In"><ZoomIn /></button>
-          <button className="toolbar-btn" onClick={() => zoom(-0.2)} title="Zoom Out"><ZoomOut /></button>
-          <button className="toolbar-btn" onClick={fitView} title="Fit"><Maximize2 /></button>
+          {showNudge && (
+            <div className="download-nudge" role="status">
+              <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75" />
+                <circle cx="12" cy="12" r="10" />
+              </svg>
+              Diagram demo siap diekspor
+              <button
+                className="download-nudge__dismiss"
+                onClick={() => setShowNudge(false)}
+                aria-label="Tutup petunjuk"
+              >×</button>
+            </div>
+          )}
+          <button className="toolbar-btn" onClick={() => zoom(0.2)} title="Zoom In" aria-label="Perbesar tampilan"><ZoomIn /></button>
+          <button className="toolbar-btn" onClick={() => zoom(-0.2)} title="Zoom Out" aria-label="Perkecil tampilan"><ZoomOut /></button>
+          <button className="toolbar-btn" onClick={fitView} title="Fit" aria-label="Sesuaikan ke layar"><Maximize2 /></button>
           <span className="toolbar-sep" />
-          <button className="toolbar-btn" onClick={downloadXml} disabled={!xml} title="Download .bpmn">
+          <button className="toolbar-btn" onClick={downloadXml} disabled={!xml} title="Download .bpmn" aria-label="Unduh berkas .bpmn">
             <Download />.bpmn
           </button>
-          <button className="toolbar-btn" onClick={downloadSvg} disabled={!xml} title="Download .svg">
+          <button className="toolbar-btn" onClick={downloadSvg} disabled={!xml} title="Download .svg" aria-label="Unduh berkas .svg">
             <Download />.svg
           </button>
         </div>
@@ -90,26 +116,48 @@ export default function BpmnViewer({ xml, processName = '' }) {
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
         {loading && (
-          <div className="canvas-overlay">
+          <div className="canvas-overlay" role="status" aria-live="polite" aria-label="Memuat diagram">
             <div className="canvas-overlay__spinner" />
           </div>
         )}
 
         {!xml && !loading && !error && (
           <div className="empty-state">
-            <svg className="empty-state__icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-            </svg>
-            <div className="empty-state__title">Belum ada diagram</div>
-            <div className="empty-state__desc">
-              Masukkan teks SOP atau unggah berkas di panel kiri untuk menghasilkan diagram alur proses BPMN 2.0.
+            <div className="empty-state__diagram" aria-hidden="true"><span className="empty-state__node empty-state__node--start" /><i /><span className="empty-state__node">Terima SOP</span><i /><span className="empty-state__node empty-state__node--decision">?</span><i /><span className="empty-state__node">Publikasi</span><i /><span className="empty-state__node empty-state__node--end" /></div>
+            <span className="empty-state__kicker"><ScanLine size={13} /> FIXTURE LOKAL / BPMN 2.0</span>
+            <div className="empty-state__title">
+              {firstRun ? 'Satu proses, seluruh percabangan terlihat.' : 'Fixture belum dijalankan.'}
             </div>
+            <div className="empty-state__desc">
+              {firstRun
+                ? 'Gunakan input di kiri untuk memuat fixture pengadaan. Simulasi ini menampilkan setiap task, gateway, dan jalur penolakan.'
+                : 'Jalankan simulasi dari panel kiri untuk menampilkan diagram BPMN.'}
+            </div>
+            {firstRun && (
+              <>
+                {onTrySample && (
+                  <button className="empty-state__cta" onClick={onTrySample}>
+                    <Sparkles width={13} height={13} aria-hidden="true" />
+                    Tampilkan fixture pengadaan
+                  </button>
+                )}
+                <button
+                  className="empty-state__skip"
+                  onClick={() => {
+                    localStorage.setItem(FIRST_RUN_KEY, '1');
+                    setFirstRun(false);
+                  }}
+                >
+                  Saya sudah tahu cara pakainya
+                </button>
+              </>
+            )}
           </div>
         )}
 
         {error && (
-          <div className="canvas-error">
-            <svg style={{ width: 14, height: 14, flexShrink: 0, marginTop: 1 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <div className="canvas-error" role="alert">
+            <svg style={{ width: 14, height: 14, flexShrink: 0, marginTop: 1 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
               <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
             </svg>
             <span>{error}</span>

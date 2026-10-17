@@ -39,3 +39,4 @@ desktop.ini
 # Output / Test Artifacts
 extracted_graph.json
 *.log
+.impeccable/config.json

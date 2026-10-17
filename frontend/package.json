@@ -1,4 +1,13 @@
 {
+  "name": "autobpmn-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
   "dependencies": {
     "@heroui/react": "^3.2.6",
     "@tailwindcss/vite": "^4.3.3",

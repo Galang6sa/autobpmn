@@ -4,6 +4,7 @@ Seluruh riwayat perubahan, pembaruan fitur, dan perbaikan bug proyek AutoBPMN te
 
 | Versi | Tanggal | Sorotan Pembaruan | Berkas Detail |
 | :--- | :--- | :--- | :--- |
+| **v1.2.0** | 17 Okt 2026 | **URL-based mode routing**: Prototype Mode (mock API di root `/`) vs Real Simulation Mode (live backend di `/demo`), visual simulation frame, mock pipeline service, dan ESM compatibility | [v1.2.0.md](./v1.2.0.md) |
 | **v1.1.0** | 16 Okt 2026 | **Async event-loop offloading**, eliminasi hang/freeze tombol ekstrak, prioritas provider cerdas (Groq/OpenRouter failover), dan perampingan dependensi frontend | [v1.1.0.md](./v1.1.0.md) |
 | **v1.0.0** | 16 Okt 2026 | **Multi-provider LLM** (Gemini + Groq + OpenRouter), perombakan **Layout Sugiyama Left-to-Right**, routing Manhattan 90°, UI Vanilla CSS, dan skrip 1-klik `START_AUTOBPMN.bat` | [v1.0.0.md](./v1.0.0.md) |
 

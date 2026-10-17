@@ -37,14 +37,38 @@ Output HARUS berupa JSON valid sesuai skema berikut:
 _CACHED_PROVIDER: Optional[str] = None
 _CACHED_MODEL: Optional[str] = None
 
+# Free cloud tiers in the configured fallback chain accept far less input than
+# their advertised context windows. Keep a conservative, provider-neutral cap
+# so a large PDF never reaches Groq as an opaque HTTP 413.
+MAX_SOP_CHARS = 16_000
+
+
+class InputTooLargeError(ValueError):
+    """Raised before sending a document that cannot fit the cloud fallback."""
+
+
+class ProviderConfigurationError(ValueError):
+    """Raised when a configured provider key cannot be used."""
+
+
+def _validate_sop_size(sop_text: str) -> str:
+    normalized = "\n".join(line.rstrip() for line in sop_text.replace("\r\n", "\n").split("\n")).strip()
+    if len(normalized) > MAX_SOP_CHARS:
+        raise InputTooLargeError(
+            "Dokumen terlalu panjang untuk mode cloud gratis. "
+            f"Batasnya sekitar {MAX_SOP_CHARS:,} karakter setelah teks PDF diekstrak. "
+            "Pisahkan SOP per prosedur atau ringkas bagian lampiran terlebih dahulu."
+        )
+    return normalized
+
 # ---------- Provider: Gemini ----------
 def _call_gemini(sop_text: str, api_key: str) -> AutoBPMNGraph:
     from google import genai
     from google.genai import types
 
     PREFERRED = [
-        "gemini-3.8-flash", "gemini-3.5-flash", "gemini-2.0-flash",
-        "gemini-flash-latest", "gemini-2.0-flash-lite", "gemini-pro-latest",
+        "gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash",
+        "gemini-flash-latest",
     ]
     EXCLUDED_KW = ["tts", "audio", "image", "imagen", "embed", "aqa", "vision", "realtime", "robotics"]
 
@@ -55,23 +79,30 @@ def _call_gemini(sop_text: str, api_key: str) -> AutoBPMNGraph:
     client = genai.Client(api_key=api_key)
 
     # Validasi awal singkat apakah API key Gemini valid
-    if not api_key.startswith("AIzaSy"):
-        raise ValueError("Format GEMINI_API_KEY tidak valid (kunci Gemini resmi selalu berawalan 'AIzaSy').")
+    if not api_key.startswith("AIza"):
+        raise ProviderConfigurationError(
+            "GEMINI_API_KEY tidak valid. Buat key Gemini baru di Google AI Studio dan isi hanya pada GEMINI_API_KEY."
+        )
 
     # Daftar model prioritas Gemini
-    candidates = list(PREFERRED)
+    available_models: List[str] = []
     try:
         for m in client.models.list():
             clean = (m.name or "").replace("models/", "")
-            if is_text_model(clean) and clean not in candidates:
-                candidates.append(clean)
+            if is_text_model(clean):
+                available_models.append(clean)
     except Exception as e:
         if "API_KEY_INVALID" in str(e) or "400" in str(e) or "401" in str(e):
-            raise ValueError(f"Gemini API key tidak valid: {e}")
-        pass
+            raise ProviderConfigurationError("GEMINI_API_KEY ditolak oleh Google AI Studio.") from e
+
+    # Favor documented Flash variants, but only call models actually exposed to
+    # this account. This prevents the static list from hiding a newer model.
+    preferred_available = [m for m in PREFERRED if m in available_models]
+    other_available = [m for m in available_models if m not in preferred_available]
+    candidates = preferred_available + other_available if available_models else PREFERRED
 
     last_err = None
-    for model in candidates[:4]:  # Coba maksimal 4 model teratas agar tidak hang berlarut-larut
+    for model in candidates[:3]:
         if not is_text_model(model):
             continue
         try:
@@ -153,6 +184,12 @@ def _call_openai_compatible(
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="replace") if e.fp else str(e)
             print(f"[AutoBPMN] {provider_name} {model} gagal ({e.code}): {err_body[:150]}")
+            if e.code == 413:
+                raise InputTooLargeError(
+                    "Dokumen melebihi batas input provider cloud. Pisahkan SOP menjadi beberapa prosedur."
+                ) from e
+            if e.code in (401, 403):
+                raise ProviderConfigurationError(f"Kredensial {provider_name} ditolak oleh provider.") from e
             last_err = Exception(f"{provider_name} {model}: HTTP {e.code}")
             continue
         except Exception as e:
@@ -163,54 +200,21 @@ def _call_openai_compatible(
     raise RuntimeError(f"{provider_name}: semua model gagal. Terakhir: {last_err}")
 
 
-def _get_groq_models(api_key: str) -> List[str]:
-    """Mengambil daftar model aktif secara dinamis dari Groq API."""
-    fallback_models = [
-        "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
-        "llama3-70b-8192",
-        "llama3-8b-8192",
-        "deepseek-r1-distill-llama-70b",
-        "qwen-2.5-32b",
-    ]
-    try:
-        req = urllib.request.Request(
-            "https://api.groq.com/openai/v1/models",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "User-Agent": "AutoBPMN/1.0 (Windows NT 10.0; Win64; x64)",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-
-        discovered = []
-        for m in data.get("data", []):
-            mid = m.get("id", "")
-            if any(bad in mid.lower() for bad in ["whisper", "guard", "distil-whisper", "embed", "vision"]):
-                continue
-            discovered.append(mid)
-
-        if discovered:
-            # Prioritaskan model teks handal untuk structured JSON
-            preferred = [
-                m for m in discovered
-                if any(k in m.lower() for k in ["llama-3.3-70b", "llama-3.1-8b", "llama3-70b", "llama3-8b", "deepseek"])
-            ]
-            return preferred + [m for m in discovered if m not in preferred]
-    except Exception as e:
-        print(f"[AutoBPMN] Groq live model check: {e}")
-
-    return fallback_models
+# These are production text models, deliberately pinned instead of using every
+# model returned by /models (which included TTS and deprecated IDs in the log).
+GROQ_TEXT_MODELS = [
+    "openai/gpt-oss-20b",
+    "openai/gpt-oss-120b",
+    "qwen/qwen3.8-27b",
+]
 
 
 def _call_groq(sop_text: str, api_key: str) -> AutoBPMNGraph:
-    models = _get_groq_models(api_key)
     return _call_openai_compatible(
         sop_text=sop_text,
         api_key=api_key,
         base_url="https://api.groq.com/openai/v1",
-        models=models,
+        models=GROQ_TEXT_MODELS,
         provider_name="Groq",
     )
 
@@ -315,6 +319,7 @@ def extract_sop_to_graph(sop_text: str) -> AutoBPMNGraph:
     global _CACHED_PROVIDER, _CACHED_MODEL
 
     _load_env_file()
+    sop_text = _validate_sop_size(sop_text)
 
     providers = []
 
