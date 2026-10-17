@@ -19,12 +19,12 @@ COLOR_PALETTE = {
         "fill": "#ecfdf5",
     },
     "endEvent": {
-        "stroke": "#dc2626",  # Red 600
-        "fill": "#fef2f2",
+        "stroke": "#e11d48",  # Rose 600
+        "fill": "#fff1f2",
     },
     "userTask": {
-        "stroke": "#2563eb",  # Blue 600
-        "fill": "#eff6ff",
+        "stroke": "#0284c7",  # Sky 600
+        "fill": "#f0f9ff",
     },
     "serviceTask": {
         "stroke": "#7c3aed",  # Violet 600
