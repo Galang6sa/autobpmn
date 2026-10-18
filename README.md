@@ -142,13 +142,15 @@ Aplikasi memiliki dua mode operasi yang bisa diganti langsung melalui UI:
 5. **Akses Aplikasi:**  
    Buka `http://localhost:5173` di browser. Buka rute `/demo` untuk menguji integrasi backend. Dokumentasi Swagger API dapat diakses di `http://127.0.0.1:8000/docs`.
 
+Untuk menguji hasil build lokal di `http://localhost:4173`, jalankan backend seperti di atas, lalu jalankan `npm run build` dan `npm run preview` di folder `frontend`. Preview meneruskan request `/api` ke backend lokal di port `8000`; tanpa backend aktif, Mode Demo tidak dapat memproses SOP.
+
 > 💡 *Panduan instalasi yang lebih rinci dapat dilihat di [SETUP_GUIDE.md](./SETUP_GUIDE.md).*
 
 ### Deploy Gratis ke Internet (Vercel)
 
 Frontend Vite dan backend FastAPI berjalan dalam satu project Vercel. Fitur serverless gratis memiliki batas durasi dan penggunaan; requests pertama dapat membutuhkan waktu lebih lama. Repository harus tersedia di GitHub.
 
-1. **Impor repository:** buka [Vercel](https://vercel.com/new), hubungkan GitHub, pilih repository `autobpmn`, lalu pilih branch `deploy/free-hosting`. Biarkan **Root Directory** di root repository, bukan `frontend`.
+1. **Impor repository:** buka [Vercel](https://vercel.com/new), hubungkan GitHub, pilih repository `autobpmn`, lalu pilih branch `main`. Biarkan **Root Directory** di root repository, bukan `frontend`.
 2. **Tambahkan API key AI:** di **Settings > Environment Variables**, tambahkan minimal satu server-side secret: `GEMINI_API_KEY`, `GROQ_API_KEY`, atau `OPENROUTER_API_KEY`. Jangan gunakan awalan `VITE_` pada key AI karena variabel berawalan tersebut diekspos ke browser.
 3. Pilih **Deploy**. Konfigurasi root `vercel.json` menjalankan build Vite dan menerbitkan API FastAPI; API frontend secara otomatis memakai domain project yang sama.
 4. Setelah deployment berhasil, buka `https://<domain-vercel>/health`, lalu `https://<domain-vercel>/demo` untuk menguji aplikasi dan integrasi AI.
