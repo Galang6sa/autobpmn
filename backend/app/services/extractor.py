@@ -41,7 +41,7 @@ _CACHED_PROVIDER: Optional[str] = None
 # so a large PDF never reaches Groq as an opaque HTTP 413.
 MAX_SOP_CHARS = 16_000
 # Avoid a model-catalog round trip on every serverless invocation.
-GEMINI_FAST_MODEL = "gemini-2.5-flash-lite"
+GEMINI_FAST_MODEL = "gemini-3.5-flash-lite"
 GEMINI_REQUEST_TIMEOUT_MS = 20_000
 
 
