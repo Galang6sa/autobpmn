@@ -1,18 +1,8 @@
----
-title: AutoBPMN API
-emoji: ⚙️
-colorFrom: blue
-colorTo: green
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # AutoBPMN
 
 **AutoBPMN** adalah *review studio* berbasis web untuk mengubah dokumen Standard Operating Procedure (SOP) menjadi draft diagram BPMN 2.0 secara otomatis. Aplikasi ini dirancang untuk membantu *business analyst* meninjau hasil ekstraksi, memvalidasi alur proses, mengedit diagram secara visual, hingga mengekspor hasil akhirnya tanpa perlu menyusun XML BPMN dari nol.
 
-> **Catatan Proyek:** Backend dapat di-deploy sebagai Hugging Face Space dan frontend sebagai situs statis. Data sumber serta diagram tetap disimpan di browser pengguna (*client-side*); aplikasi belum menyediakan sinkronisasi atau kolaborasi *real-time*.
+> **Catatan Proyek:** Backend dapat di-deploy sebagai FastAPI dan frontend sebagai situs statis. Data sumber serta diagram tetap disimpan di browser pengguna (*client-side*); aplikasi belum menyediakan sinkronisasi atau kolaborasi *real-time*.
 
 ---
 
@@ -154,18 +144,16 @@ Aplikasi memiliki dua mode operasi yang bisa diganti langsung melalui UI:
 
 > 💡 *Panduan instalasi yang lebih rinci dapat dilihat di [SETUP_GUIDE.md](./SETUP_GUIDE.md).*
 
-### Deploy Gratis ke Internet (Hugging Face Spaces + Vercel)
+### Deploy Gratis ke Internet (Vercel)
 
-Backend menggunakan Hugging Face Spaces dengan Docker, sedangkan frontend menggunakan Vercel. Kode sumber di GitHub dan Space harus publik untuk tetap di paket gratis. Buat akun di [Hugging Face](https://huggingface.co/join) dan [Vercel](https://vercel.com/signup) jika belum punya.
+Frontend Vite dan backend FastAPI berjalan dalam satu project Vercel. Fitur serverless gratis memiliki batas durasi dan penggunaan; requests pertama dapat membutuhkan waktu lebih lama. Repository harus tersedia di GitHub.
 
-1. **Buat Space backend:** buka [New Space](https://huggingface.co/new-space), beri nama seperti `autobpmn-api`, pilih **Docker** sebagai SDK dan **Public** sebagai visibility, lalu buat Space. Konfigurasi Space menggunakan Dockerfile di root repository ini.
-2. **Tambahkan rahasia AI:** pada halaman Space, buka **Settings > Variables and secrets**, lalu tambahkan minimal satu secret: `GEMINI_API_KEY`, `GROQ_API_KEY`, atau `OPENROUTER_API_KEY`. Tambahkan juga variable `FRONTEND_ORIGINS` berisi domain frontend Vercel setelah langkah 4. Jangan simpan API key di GitHub atau Vercel.
-3. **Aktifkan deploy backend otomatis:** buat Hugging Face access token dengan izin **write**. Di repository GitHub, buka **Settings > Secrets and variables > Actions** dan tambahkan repository secrets `HF_TOKEN` (access token tersebut) dan `HF_SPACE_ID` dengan nilai `<username-HF>/autobpmn-api`. Workflow `.github/workflows/deploy-hf-space.yml` akan mengunggah aplikasi setiap ada push ke branch `deploy/free-hosting`. Token hanya disimpan sebagai secret GitHub.
-4. **Deploy frontend:** impor repository ini di [Vercel](https://vercel.com/new), pilih branch `deploy/free-hosting`, dan atur **Root Directory** ke `frontend`. Tambahkan environment variable `VITE_API_BASE_URL` dengan nilai `https://<username-HF>-autobpmn-api.hf.space/api/v1`, lalu deploy. Gunakan alamat Space yang ditampilkan Hugging Face jika berbeda.
-5. Salin domain frontend Vercel, lalu atur `FRONTEND_ORIGINS` pada Hugging Face Space ke domain tersebut (tanpa garis miring di akhir). Jika ada lebih dari satu domain, pisahkan dengan koma. Space akan restart setelah perubahan.
-6. Pastikan `https://<username-HF>-autobpmn-api.hf.space/health` mengembalikan status sehat, kemudian buka `https://<domain-frontend>/demo` untuk menguji integrasi AI.
+1. **Impor repository:** buka [Vercel](https://vercel.com/new), hubungkan GitHub, pilih repository `autobpmn`, lalu pilih branch `deploy/free-hosting`. Biarkan **Root Directory** di root repository, bukan `frontend`.
+2. **Tambahkan API key AI:** di **Settings > Environment Variables**, tambahkan minimal satu server-side secret: `GEMINI_API_KEY`, `GROQ_API_KEY`, atau `OPENROUTER_API_KEY`. Jangan gunakan awalan `VITE_` pada key AI karena variabel berawalan tersebut diekspos ke browser.
+3. Pilih **Deploy**. Konfigurasi root `vercel.json` menjalankan build Vite dan menerbitkan API FastAPI; API frontend secara otomatis memakai domain project yang sama.
+4. Setelah deployment berhasil, buka `https://<domain-vercel>/health`, lalu `https://<domain-vercel>/demo` untuk menguji aplikasi dan integrasi AI.
 
-Mode prototype pada `/` tetap dapat digunakan tanpa backend. Free Space dapat berhenti saat tidak digunakan sehingga permintaan pertama setelah idle mungkin lambat. Backend publik dapat diakses siapa pun dan penggunaan API key AI bisa menghabiskan kuota provider; unggah dokumen hanya jika kamu berhak membagikannya dengan provider AI.
+Versi gratis Vercel ditujukan untuk penggunaan personal/nonkomersial dan memiliki batas pemakaian. Frontend tersedia di CDN; request API berjalan sebagai serverless function. Aplikasi tetap menyimpan diagram dan dokumen di browser. SOP yang dikirim dari mode demo akan diteruskan ke provider AI yang dipilih; jangan mengunggah dokumen yang tidak boleh dibagikan ke provider.
 
 ### Build & Testing
 
