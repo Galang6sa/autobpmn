@@ -1,8 +1,18 @@
+---
+title: AutoBPMN API
+emoji: ⚙️
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # AutoBPMN
 
 **AutoBPMN** adalah *review studio* berbasis web untuk mengubah dokumen Standard Operating Procedure (SOP) menjadi draft diagram BPMN 2.0 secara otomatis. Aplikasi ini dirancang untuk membantu *business analyst* meninjau hasil ekstraksi, memvalidasi alur proses, mengedit diagram secara visual, hingga mengekspor hasil akhirnya tanpa perlu menyusun XML BPMN dari nol.
 
-> **Catatan Proyek:** Saat ini AutoBPMN berjalan sebagai prototipe lokal. Seluruh data sumber dan diagram disimpan di browser lokal (*client-side*) dan belum terintegrasi dengan layanan *cloud* atau fitur kolaborasi *real-time*.
+> **Catatan Proyek:** Backend dapat di-deploy sebagai Hugging Face Space dan frontend sebagai situs statis. Data sumber serta diagram tetap disimpan di browser pengguna (*client-side*); aplikasi belum menyediakan sinkronisasi atau kolaborasi *real-time*.
 
 ---
 
@@ -144,18 +154,18 @@ Aplikasi memiliki dua mode operasi yang bisa diganti langsung melalui UI:
 
 > 💡 *Panduan instalasi yang lebih rinci dapat dilihat di [SETUP_GUIDE.md](./SETUP_GUIDE.md).*
 
-### Deploy Gratis ke Internet (Render + Vercel)
+### Deploy Gratis ke Internet (Hugging Face Spaces + Vercel)
 
-Konfigurasi deploy ada di `render.yaml` dan `frontend/vercel.json`. Repository harus tersedia di GitHub agar bisa dihubungkan ke kedua layanan.
+Backend menggunakan Hugging Face Spaces dengan Docker, sedangkan frontend menggunakan Vercel. Kode sumber di GitHub dan Space harus publik untuk tetap di paket gratis. Buat akun di [Hugging Face](https://huggingface.co/join) dan [Vercel](https://vercel.com/signup) jika belum punya.
 
-1. **Deploy backend di Render:** buka [Render Dashboard](https://dashboard.render.com/), pilih **New > Blueprint**, lalu hubungkan repository ini. Render membaca `render.yaml` dan menjalankan service `autobpmn-api`. Setelah selesai, salin URL service, misalnya `https://autobpmn-api.onrender.com`.
-2. **Tambahkan API key AI di Render:** buka **Environment** pada service backend dan tambahkan minimal satu secret: `GEMINI_API_KEY`, `GROQ_API_KEY`, atau `OPENROUTER_API_KEY`. Jangan menaruh key ini di Vercel atau repository.
-3. **Deploy frontend di Vercel:** impor repository yang sama di [Vercel](https://vercel.com/new), lalu atur **Root Directory** ke `frontend`. Vercel akan menggunakan `frontend/vercel.json` dan perintah build `npm run build`.
-4. Di **Settings > Environment Variables** proyek Vercel, tambahkan `VITE_API_BASE_URL` dengan nilai `https://<URL-BACKEND-RENDER>/api/v1` (ganti dengan URL backend milikmu tanpa garis miring di akhir), lalu redeploy frontend.
-5. Salin domain frontend, misalnya `https://autobpmn.vercel.app`. Di **Environment** service Render, set `FRONTEND_ORIGINS` ke domain itu saja, tanpa garis miring di akhir. Jika ada beberapa domain frontend, pisahkan dengan koma. Redeploy backend setelah menyimpan perubahan.
-6. Uji backend dengan membuka `https://<URL-BACKEND-RENDER>/health`, lalu buka `https://<DOMAIN-FRONTEND>/demo` untuk mencoba integrasi AI.
+1. **Buat Space backend:** buka [New Space](https://huggingface.co/new-space), beri nama seperti `autobpmn-api`, pilih **Docker** sebagai SDK dan **Public** sebagai visibility, lalu buat Space. Konfigurasi Space menggunakan Dockerfile di root repository ini.
+2. **Tambahkan rahasia AI:** pada halaman Space, buka **Settings > Variables and secrets**, lalu tambahkan minimal satu secret: `GEMINI_API_KEY`, `GROQ_API_KEY`, atau `OPENROUTER_API_KEY`. Tambahkan juga variable `FRONTEND_ORIGINS` berisi domain frontend Vercel setelah langkah 4. Jangan simpan API key di GitHub atau Vercel.
+3. **Aktifkan deploy backend otomatis:** buat Hugging Face access token dengan izin **write**. Di repository GitHub, buka **Settings > Secrets and variables > Actions** dan tambahkan repository secrets `HF_TOKEN` (access token tersebut) dan `HF_SPACE_ID` dengan nilai `<username-HF>/autobpmn-api`. Workflow `.github/workflows/deploy-hf-space.yml` akan mengunggah aplikasi setiap ada push ke branch `deploy/free-hosting`. Token hanya disimpan sebagai secret GitHub.
+4. **Deploy frontend:** impor repository ini di [Vercel](https://vercel.com/new), pilih branch `deploy/free-hosting`, dan atur **Root Directory** ke `frontend`. Tambahkan environment variable `VITE_API_BASE_URL` dengan nilai `https://<username-HF>-autobpmn-api.hf.space/api/v1`, lalu deploy. Gunakan alamat Space yang ditampilkan Hugging Face jika berbeda.
+5. Salin domain frontend Vercel, lalu atur `FRONTEND_ORIGINS` pada Hugging Face Space ke domain tersebut (tanpa garis miring di akhir). Jika ada lebih dari satu domain, pisahkan dengan koma. Space akan restart setelah perubahan.
+6. Pastikan `https://<username-HF>-autobpmn-api.hf.space/health` mengembalikan status sehat, kemudian buka `https://<domain-frontend>/demo` untuk menguji integrasi AI.
 
-Mode prototype di `/` tetap bisa dipakai tanpa backend. Pada paket gratis, service backend Render dapat tidur saat tidak digunakan sehingga permintaan pertama setelah idle mungkin membutuhkan waktu lebih lama. Dokumen dan diagram tetap disimpan di browser pengguna; jangan unggah SOP rahasia karena mode demo mengirim teks ke penyedia AI yang dipilih.
+Mode prototype pada `/` tetap dapat digunakan tanpa backend. Free Space dapat berhenti saat tidak digunakan sehingga permintaan pertama setelah idle mungkin lambat. Backend publik dapat diakses siapa pun dan penggunaan API key AI bisa menghabiskan kuota provider; unggah dokumen hanya jika kamu berhak membagikannya dengan provider AI.
 
 ### Build & Testing
 
