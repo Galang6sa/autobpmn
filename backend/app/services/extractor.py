@@ -35,12 +35,14 @@ Output HARUS berupa JSON valid sesuai skema berikut:
 }"""
 
 _CACHED_PROVIDER: Optional[str] = None
-_CACHED_MODEL: Optional[str] = None
 
 # Free cloud tiers in the configured fallback chain accept far less input than
 # their advertised context windows. Keep a conservative, provider-neutral cap
 # so a large PDF never reaches Groq as an opaque HTTP 413.
 MAX_SOP_CHARS = 16_000
+# Avoid a model-catalog round trip on every serverless invocation.
+GEMINI_FAST_MODEL = "gemini-2.5-flash-lite"
+GEMINI_REQUEST_TIMEOUT_MS = 20_000
 
 
 class InputTooLargeError(ValueError):
@@ -66,65 +68,31 @@ def _call_gemini(sop_text: str, api_key: str) -> AutoBPMNGraph:
     from google import genai
     from google.genai import types
 
-    PREFERRED = [
-        "gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash",
-        "gemini-flash-latest",
-    ]
-    EXCLUDED_KW = ["tts", "audio", "image", "imagen", "embed", "aqa", "vision", "realtime", "robotics"]
-
-    def is_text_model(name: str) -> bool:
-        lower = name.lower()
-        return not any(kw in lower for kw in EXCLUDED_KW)
-
-    client = genai.Client(api_key=api_key)
-
     # Validasi awal singkat apakah API key Gemini valid
     if not api_key.startswith("AIza"):
         raise ProviderConfigurationError(
             "GEMINI_API_KEY tidak valid. Buat key Gemini baru di Google AI Studio dan isi hanya pada GEMINI_API_KEY."
         )
 
-    # Daftar model prioritas Gemini
-    available_models: List[str] = []
-    try:
-        for m in client.models.list():
-            clean = (m.name or "").replace("models/", "")
-            if is_text_model(clean):
-                available_models.append(clean)
-    except Exception as e:
-        if "API_KEY_INVALID" in str(e) or "400" in str(e) or "401" in str(e):
-            raise ProviderConfigurationError("GEMINI_API_KEY ditolak oleh Google AI Studio.") from e
-
-    # Favor documented Flash variants, but only call models actually exposed to
-    # this account. This prevents the static list from hiding a newer model.
-    preferred_available = [m for m in PREFERRED if m in available_models]
-    other_available = [m for m in available_models if m not in preferred_available]
-    candidates = preferred_available + other_available if available_models else PREFERRED
-
-    last_err = None
-    for model in candidates[:3]:
-        if not is_text_model(model):
-            continue
-        try:
-            print(f"[AutoBPMN] Menghubungi Gemini model: {model}...")
-            resp = client.models.generate_content(
-                model=model,
-                contents=f"Ekstrak SOP berikut ke skema graf AutoBPMN:\n\n{sop_text}",
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_INSTRUCTION,
-                    response_mime_type="application/json",
-                    response_schema=AutoBPMNGraph,
-                    temperature=0.1,
-                ),
-            )
-            return AutoBPMNGraph.model_validate_json(resp.text)
-        except Exception as e:
-            last_err = e
-            if "API_KEY_INVALID" in str(e) or "401" in str(e):
-                raise
-            continue
-
-    raise RuntimeError(f"Gemini: semua model gagal. Terakhir: {last_err}")
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(
+            timeout=GEMINI_REQUEST_TIMEOUT_MS,
+            retry_options=types.HttpRetryOptions(attempts=1),
+        ),
+    )
+    print(f"[AutoBPMN] Menghubungi Gemini model: {GEMINI_FAST_MODEL}...")
+    resp = client.models.generate_content(
+        model=GEMINI_FAST_MODEL,
+        contents=f"Ekstrak SOP berikut ke skema graf AutoBPMN:\n\n{sop_text}",
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_INSTRUCTION,
+            response_mime_type="application/json",
+            response_schema=AutoBPMNGraph,
+            temperature=0.1,
+        ),
+    )
+    return AutoBPMNGraph.model_validate_json(resp.text)
 
 
 # ---------- Provider: OpenAI-compatible (Groq / OpenRouter) ----------
@@ -316,7 +284,7 @@ def extract_sop_to_graph(sop_text: str) -> AutoBPMNGraph:
     Aktifkan provider dengan menyetel env variable API key masing-masing:
       GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY
     """
-    global _CACHED_PROVIDER, _CACHED_MODEL
+    global _CACHED_PROVIDER
 
     _load_env_file()
     sop_text = _validate_sop_size(sop_text)
