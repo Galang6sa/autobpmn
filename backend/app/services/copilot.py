@@ -20,6 +20,8 @@ from app.schemas.copilot import (
 )
 from app.services.extractor import (
     _load_env_file,
+    GEMINI_FAST_MODEL,
+    GEMINI_REQUEST_TIMEOUT_MS,
     GROQ_TEXT_MODELS,
     _get_openrouter_free_models,
 )
@@ -233,27 +235,24 @@ def _call_gemini_copilot(prompt: str, api_key: str) -> str:
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=api_key)
-    PREFERRED = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
-
-    for model in PREFERRED:
-        try:
-            logger.info(f"[AutoBPMN Copilot] Memanggil Gemini model: {model}")
-            resp = client.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=COPILOT_SYSTEM_INSTRUCTION,
-                    response_mime_type="application/json",
-                    temperature=0.2,
-                ),
-            )
-            return resp.text
-        except Exception as e:
-            logger.warning(f"Gemini {model} gagal: {e}")
-            continue
-
-    raise RuntimeError("Gemini Copilot gagal di semua model.")
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(
+            timeout=GEMINI_REQUEST_TIMEOUT_MS,
+            retry_options=types.HttpRetryOptions(attempts=1),
+        ),
+    )
+    logger.info(f"[AutoBPMN Copilot] Memanggil Gemini model: {GEMINI_FAST_MODEL}")
+    resp = client.models.generate_content(
+        model=GEMINI_FAST_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=COPILOT_SYSTEM_INSTRUCTION,
+            response_mime_type="application/json",
+            temperature=0.2,
+        ),
+    )
+    return resp.text
 
 
 def _call_openai_compatible_copilot(
@@ -461,4 +460,3 @@ async def stream_copilot_events(request: ChatRequest) -> AsyncGenerator[str, Non
             "message": f"Gagal memproses Copilot: {str(e)}",
         }
         yield f"event: error\ndata: {json.dumps(err_payload, ensure_ascii=False)}\n\n"
-
