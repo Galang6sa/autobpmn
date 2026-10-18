@@ -144,6 +144,19 @@ Aplikasi memiliki dua mode operasi yang bisa diganti langsung melalui UI:
 
 > 💡 *Panduan instalasi yang lebih rinci dapat dilihat di [SETUP_GUIDE.md](./SETUP_GUIDE.md).*
 
+### Deploy Gratis ke Internet (Render + Vercel)
+
+Konfigurasi deploy ada di `render.yaml` dan `frontend/vercel.json`. Repository harus tersedia di GitHub agar bisa dihubungkan ke kedua layanan.
+
+1. **Deploy backend di Render:** buka [Render Dashboard](https://dashboard.render.com/), pilih **New > Blueprint**, lalu hubungkan repository ini. Render membaca `render.yaml` dan menjalankan service `autobpmn-api`. Setelah selesai, salin URL service, misalnya `https://autobpmn-api.onrender.com`.
+2. **Tambahkan API key AI di Render:** buka **Environment** pada service backend dan tambahkan minimal satu secret: `GEMINI_API_KEY`, `GROQ_API_KEY`, atau `OPENROUTER_API_KEY`. Jangan menaruh key ini di Vercel atau repository.
+3. **Deploy frontend di Vercel:** impor repository yang sama di [Vercel](https://vercel.com/new), lalu atur **Root Directory** ke `frontend`. Vercel akan menggunakan `frontend/vercel.json` dan perintah build `npm run build`.
+4. Di **Settings > Environment Variables** proyek Vercel, tambahkan `VITE_API_BASE_URL` dengan nilai `https://<URL-BACKEND-RENDER>/api/v1` (ganti dengan URL backend milikmu tanpa garis miring di akhir), lalu redeploy frontend.
+5. Salin domain frontend, misalnya `https://autobpmn.vercel.app`. Di **Environment** service Render, set `FRONTEND_ORIGINS` ke domain itu saja, tanpa garis miring di akhir. Jika ada beberapa domain frontend, pisahkan dengan koma. Redeploy backend setelah menyimpan perubahan.
+6. Uji backend dengan membuka `https://<URL-BACKEND-RENDER>/health`, lalu buka `https://<DOMAIN-FRONTEND>/demo` untuk mencoba integrasi AI.
+
+Mode prototype di `/` tetap bisa dipakai tanpa backend. Pada paket gratis, service backend Render dapat tidur saat tidak digunakan sehingga permintaan pertama setelah idle mungkin membutuhkan waktu lebih lama. Dokumen dan diagram tetap disimpan di browser pengguna; jangan unggah SOP rahasia karena mode demo mengirim teks ke penyedia AI yang dipilih.
+
 ### Build & Testing
 
 ```powershell
